@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -17,7 +18,10 @@ console = Console()
 
 @app.callback()
 def main(
-    version: bool = typer.Option(False, "--version", help="Print version and exit."),
+    version: Annotated[
+        bool,
+        typer.Option("--version", help="Print version and exit."),
+    ] = False,
 ) -> None:
     """Compile exported conversation archives into analyzed local artifacts."""
     if version:
@@ -27,8 +31,14 @@ def main(
 
 @app.command()
 def inspect(
-    archive: Path = typer.Argument(..., exists=True, file_okay=True, dir_okay=False),
-    hashes: bool = typer.Option(False, "--hashes", help="Compute SHA-256 for archive members."),
+    archive: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=True, dir_okay=False),
+    ],
+    hashes: Annotated[
+        bool,
+        typer.Option("--hashes", help="Compute SHA-256 for archive members."),
+    ] = False,
 ) -> None:
     """Inspect an export ZIP without extracting it."""
     manifest = inspect_zip(archive, compute_hashes=hashes)
