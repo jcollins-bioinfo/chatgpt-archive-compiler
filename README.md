@@ -53,6 +53,8 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
 python -m pip install -e '.[dev]'
+black .
+ruff check .
 pytest
 ```
 
@@ -61,6 +63,14 @@ Inspect a ZIP once the CLI implementation is ready:
 ```bash
 chatgpt-archive inspect ~/Downloads/chatgpt_export.zip
 ```
+
+## Code quality conventions
+
+All Python code must be Black-formatted with the repository line length of 100 characters. CI enforces `black --check .`, `ruff check .`, and `pytest`.
+
+Every Python module should begin with a concise module docstring. Every public class and function should have a docstring describing its purpose, inputs, outputs, and relevant failure modes. Private helpers should also have docstrings when behavior is non-obvious, security-relevant, or schema-sensitive.
+
+Parser, redaction, and rendering logic should live in package modules under `src/chatgpt_archive_compiler/`, not directly inside Dash callbacks or notebooks.
 
 ## License
 
