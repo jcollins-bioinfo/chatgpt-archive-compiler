@@ -11,7 +11,13 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
-from chatgpt_archive_compiler.models import ContentBlock, ContentBlockType, Conversation, Message, Role
+from chatgpt_archive_compiler.models import (
+    ContentBlock,
+    ContentBlockType,
+    Conversation,
+    Message,
+    Role,
+)
 
 
 def _from_timestamp(value: Any) -> datetime | None:
