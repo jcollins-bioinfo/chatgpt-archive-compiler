@@ -19,7 +19,9 @@ DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES = 5 * 1024**3
 
 def _is_unsafe_zip_path(path: str) -> bool:
     posix_path = PurePosixPath(path)
-    return posix_path.is_absolute() or ".." in posix_path.parts or path.startswith("/") or "\\" in path
+    has_parent_ref = ".." in posix_path.parts
+    has_backslash = "\\" in path
+    return posix_path.is_absolute() or has_parent_ref or path.startswith("/") or has_backslash
 
 
 def _detect_kind(path: PurePosixPath) -> str | None:
