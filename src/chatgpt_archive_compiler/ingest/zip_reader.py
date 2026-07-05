@@ -79,7 +79,10 @@ def inspect_zip(
                     ArchiveWarning(
                         severity=WarningSeverity.ERROR,
                         code="unsafe_zip_path",
-                        message="Archive member has an unsafe path and must not be extracted blindly.",
+                        message=(
+                            "Archive member has an unsafe path and must not be "
+                            "extracted blindly."
+                        ),
                         context={"path": info.filename},
                     )
                 )
