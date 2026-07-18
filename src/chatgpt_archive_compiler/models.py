@@ -77,6 +77,8 @@ class IngestLimits(BaseModel):
         Maximum declared uncompressed size for any individual member.
     max_json_bytes
         Maximum number of bytes read from one conversation JSON member.
+    max_total_json_bytes
+        Maximum combined bytes read from all selected conversation JSON members.
     max_compression_ratio
         Maximum allowed ratio of uncompressed to compressed bytes for a non-empty member.
     min_ratio_check_bytes
@@ -100,6 +102,7 @@ class IngestLimits(BaseModel):
     max_total_uncompressed_bytes: int = Field(default=20 * 1024**3, gt=0)
     max_member_uncompressed_bytes: int = Field(default=2 * 1024**3, gt=0)
     max_json_bytes: int = Field(default=512 * 1024**2, gt=0)
+    max_total_json_bytes: int = Field(default=2 * 1024**3, gt=0)
     max_compression_ratio: float = Field(default=250.0, gt=0)
     min_ratio_check_bytes: int = Field(default=1024**2, ge=0)
     max_conversations: int = Field(default=200_000, gt=0)
@@ -152,6 +155,7 @@ class SourceManifest(BaseModel):
     total_compressed_bytes: int = Field(default=0, ge=0)
     selected_conversation_path: PurePosixPath | None = None
     selected_conversation_sha256: str | None = None
+    selected_conversation_paths: list[PurePosixPath] = Field(default_factory=list)
     warnings: list[ArchiveWarning] = Field(default_factory=list)
 
     @property

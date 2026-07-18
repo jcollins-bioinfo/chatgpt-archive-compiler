@@ -26,12 +26,13 @@ ZIP export -> source manifest -> Archive IR -> analysis IR -> document IR -> ren
 
 The first functional slice is deliberately limited to safe ingestion and loss-aware normalization.
 It preserves every conversation mapping node and alternate/regenerated branch while representing the
-declared current path separately. Node IDs and message IDs remain distinct.
+declared current path separately. Numbered multipart exports are ingested incrementally in numeric
+order under corpus-wide limits. Node IDs and message IDs remain distinct.
 
 ## Colab bootstrap
 
 `notebooks/00_project_bootstrap_colab.ipynb` mounts Google Drive, securely clones or fast-forwards
-the private feature branch into `MyDrive/ChatGPT Data Export/chatgpt-archive-compiler`, installs the
+the selected branch into `MyDrive/ChatGPT Data Export/chatgpt-archive-compiler`, installs the
 package from that durable checkout, and exercises the public API with a branched synthetic export.
 Real-export processing is disabled by default and requires an explicit privacy acknowledgment.
 
@@ -47,4 +48,3 @@ pytest
 
 The repository is pre-alpha. No real export, normalized IR, or rendered private artifact belongs in
 Git history.
-
