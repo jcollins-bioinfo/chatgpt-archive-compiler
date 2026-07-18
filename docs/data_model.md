@@ -1,29 +1,31 @@
-# Data Model Notes
+# Archive IR v1
 
-## Archive IR v1
+Archive IR v1 is the canonical, renderer-independent representation produced by
+`ingest_export_zip`.
 
-The Archive IR is the canonical internal representation used by the CLI, Dash app, tests, and renderers.
+## Provenance
 
-## Top-level objects
+`SourceManifest` records the source filename, compressed size, optional source-ZIP digest, member
+metadata, aggregate declared sizes, the selected conversation payload path, and its SHA-256 digest.
+Absolute host paths and wall-clock ingestion times are intentionally excluded so identical inputs
+and configuration produce identical IR bytes.
 
-- `Archive`: top-level normalized archive.
-- `SourceManifest`: list of discovered source files and ingestion warnings.
-- `Conversation`: normalized conversation metadata and ordered messages.
-- `Message`: normalized role, timestamp, model metadata, and content blocks.
-- `ContentBlock`: typed message content unit.
-- `ArchiveWarning`: non-fatal issue found during ingestion or normalization.
+## Conversation graph
 
-## Design principles
+Every mapping entry becomes a `MessageNode`, including message-less structural roots and nodes on
+alternate or regenerated branches. The mapping key is the authoritative `node_id`. A semantic
+`Message.message_id` remains a separate identifier.
 
-1. Preserve enough raw metadata for debugging.
-2. Keep renderers independent of source-specific JSON shapes.
-3. Prefer warning records over hard failures when possible.
-4. Make deterministic tests possible with synthetic fixtures.
-5. Avoid assuming all conversations are simple linear transcripts.
+`Conversation.current_path_node_ids` is derived only by following parent pointers from the declared
+`current_node_id`. Missing or invalid current-node provenance produces an empty visible path and a
+warning; the normalizer never concatenates sibling branches or guesses a transcript.
 
-## Open questions
+## Schema drift
 
-- How should alternate branches or regenerated messages be represented?
-- Should attachments become first-class Archive IR objects?
-- Should redactions mutate Archive IR or produce an overlay transform?
-- Should conversation summaries be deterministic sidecars or part of the Archive IR?
+Recognized fields receive typed representations. Unknown valid JSON fields are retained in
+`source_extras`; unsupported content becomes an `UNKNOWN` block with its JSON structure intact.
+Recoverable anomalies use stable warning codes and JSON Pointer locations. Strict mode rejects any
+such warning, while tolerant mode preserves interpretable data.
+
+All IR models forbid undeclared fields and suppress input values in validation error text.
+
