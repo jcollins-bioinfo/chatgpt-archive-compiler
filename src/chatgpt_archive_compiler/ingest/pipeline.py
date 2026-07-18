@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
+import re
+from collections.abc import Iterator
+from pathlib import Path, PurePosixPath
 
 from chatgpt_archive_compiler.exceptions import (
     AmbiguousPayloadError,
@@ -26,14 +28,16 @@ from chatgpt_archive_compiler.models import (
     SourceManifest,
     WarningSeverity,
 )
-from chatgpt_archive_compiler.normalize import normalize_conversations_payload
+from chatgpt_archive_compiler.normalize import normalize_conversation_payloads
 from chatgpt_archive_compiler.version import __version__
 
+_NUMBERED_CONVERSATION_FILE = re.compile(r"^conversations-(\d+)\.json$", re.IGNORECASE)
 
-def _select_conversation_file(
+
+def _select_conversation_files(
     manifest: SourceManifest,
-) -> tuple[SourceFile, list[ArchiveWarning]]:
-    """Select one conversation JSON member by explicit, deterministic precedence."""
+) -> tuple[list[SourceFile], list[ArchiveWarning]]:
+    """Select one canonical member or a complete numbered multipart sequence."""
 
     readable = [source_file for source_file in manifest.files if source_file.is_readable]
     exact = [
@@ -42,7 +46,7 @@ def _select_conversation_file(
         if source_file.detected_kind is SourceFileKind.CONVERSATIONS_JSON
     ]
     if len(exact) == 1:
-        return exact[0], []
+        return exact, []
     if len(exact) > 1:
         raise AmbiguousPayloadError("multiple canonical conversations.json members found")
 
@@ -53,7 +57,7 @@ def _select_conversation_file(
     ]
     if len(basename_matches) == 1:
         selected = basename_matches[0]
-        return selected, [
+        return [selected], [
             ArchiveWarning(
                 severity=WarningSeverity.WARNING,
                 code="noncanonical_conversations_path",
@@ -74,7 +78,7 @@ def _select_conversation_file(
     ]
     if len(numbered_candidates) == 1:
         selected = numbered_candidates[0]
-        return selected, [
+        return [selected], [
             ArchiveWarning(
                 severity=WarningSeverity.WARNING,
                 code="noncanonical_conversations_filename",
@@ -84,9 +88,28 @@ def _select_conversation_file(
             )
         ]
     if len(numbered_candidates) > 1:
-        raise AmbiguousPayloadError(
-            "multiple conversation-like JSON members prevent safe payload selection"
-        )
+        indexed_candidates: list[tuple[int, SourceFile]] = []
+        for source_file in numbered_candidates:
+            match = _NUMBERED_CONVERSATION_FILE.fullmatch(source_file.path.name)
+            if len(source_file.path.parts) != 1 or match is None:
+                raise AmbiguousPayloadError(
+                    "multiple conversation-like JSON members do not form one root-level "
+                    "numbered sequence"
+                )
+            indexed_candidates.append((int(match.group(1)), source_file))
+
+        indices = [index for index, _ in indexed_candidates]
+        if len(indices) != len(set(indices)):
+            raise AmbiguousPayloadError(
+                "numbered conversation JSON members contain duplicate numeric indices"
+            )
+        ordered = sorted(indexed_candidates, key=lambda item: item[0])
+        ordered_indices = [index for index, _ in ordered]
+        if ordered_indices != list(range(len(ordered))):
+            raise AmbiguousPayloadError(
+                "numbered conversation JSON members must be contiguous and start at zero"
+            )
+        return [source_file for _, source_file in ordered], []
     raise PayloadNotFoundError("archive contains no supported conversation JSON payload")
 
 
@@ -174,41 +197,70 @@ def ingest_export_zip(
             manifest,
         )
 
-    selected_file, selection_warnings = _select_conversation_file(manifest)
-    if selected_file.size_bytes > active_limits.max_json_bytes:
+    selected_files, selection_warnings = _select_conversation_files(manifest)
+    declared_json_bytes = sum(source_file.size_bytes for source_file in selected_files)
+    if declared_json_bytes > active_limits.max_total_json_bytes:
         raise ArchiveLimitError(
-            "selected conversation payload exceeds the configured maximum JSON bytes"
+            "selected conversation payloads exceed the configured maximum total JSON bytes"
         )
-    raw_payload = read_zip_member_bytes(
-        archive_path,
-        selected_file.path,
-        max_bytes=active_limits.max_json_bytes,
-        chunk_bytes=active_limits.read_chunk_bytes,
-        max_compression_ratio=active_limits.max_compression_ratio,
-        min_ratio_check_bytes=active_limits.min_ratio_check_bytes,
-    )
-    selected_hash = hashlib.sha256(raw_payload).hexdigest()
-    selected_file.sha256 = selected_hash
-    manifest.selected_conversation_path = selected_file.path
-    manifest.selected_conversation_sha256 = selected_hash
+    for selected_file in selected_files:
+        if selected_file.size_bytes > active_limits.max_json_bytes:
+            raise ArchiveLimitError(
+                "a selected conversation payload exceeds the configured per-member JSON bytes"
+            )
 
-    payload, had_bom = _decode_json(raw_payload)
+    selected_paths = [source_file.path for source_file in selected_files]
+    manifest.selected_conversation_paths = selected_paths
+    if len(selected_files) == 1:
+        manifest.selected_conversation_path = selected_files[0].path
+
     payload_warnings = list(selection_warnings)
-    if had_bom:
+    observed_json_bytes = 0
+    bom_member_count = 0
+    first_bom_path: PurePosixPath | None = None
+
+    def decoded_payloads() -> Iterator[tuple[PurePosixPath, object]]:
+        """Read and decode selected parts incrementally in deterministic numeric order."""
+
+        nonlocal bom_member_count, first_bom_path, observed_json_bytes
+        for selected_file in selected_files:
+            raw_payload = read_zip_member_bytes(
+                archive_path,
+                selected_file.path,
+                max_bytes=active_limits.max_json_bytes,
+                chunk_bytes=active_limits.read_chunk_bytes,
+                max_compression_ratio=active_limits.max_compression_ratio,
+                min_ratio_check_bytes=active_limits.min_ratio_check_bytes,
+            )
+            observed_json_bytes += len(raw_payload)
+            if observed_json_bytes > active_limits.max_total_json_bytes:
+                raise ArchiveLimitError(
+                    "selected conversation payloads exceeded the streaming total JSON limit"
+                )
+            selected_hash = hashlib.sha256(raw_payload).hexdigest()
+            selected_file.sha256 = selected_hash
+            if len(selected_files) == 1:
+                manifest.selected_conversation_sha256 = selected_hash
+
+            payload, had_bom = _decode_json(raw_payload)
+            if had_bom:
+                bom_member_count += 1
+                first_bom_path = first_bom_path or selected_file.path
+            yield selected_file.path, payload
+            del payload, raw_payload
+
+    normalized = normalize_conversation_payloads(decoded_payloads(), limits=active_limits)
+    if bom_member_count:
         payload_warnings.append(
             ArchiveWarning(
                 severity=WarningSeverity.INFO,
                 code="utf8_bom",
-                message="UTF-8 byte-order mark was accepted and removed.",
-                source_path=selected_file.path,
+                message="UTF-8 byte-order marks were accepted and removed.",
+                source_path=first_bom_path if bom_member_count == 1 else None,
                 location="/",
+                context={"member_count": bom_member_count},
             )
         )
-    normalized = normalize_conversations_payload(
-        payload,
-        source_path=selected_file.path,
-        limits=active_limits,
-    )
     archive_warnings = [*payload_warnings, *normalized.warnings]
     conversation_warnings = [
         warning for conversation in normalized.conversations for warning in conversation.warnings
@@ -230,6 +282,7 @@ def ingest_export_zip(
             "schema_mode": schema_mode.value,
             "compute_member_hashes": compute_member_hashes,
             "compute_archive_hash": compute_archive_hash,
+            "conversation_payload_count": len(selected_files),
             "ingest_limits": active_limits.model_dump(mode="json"),
         },
     )

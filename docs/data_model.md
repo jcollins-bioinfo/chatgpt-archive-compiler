@@ -6,9 +6,11 @@ Archive IR v1 is the canonical, renderer-independent representation produced by
 ## Provenance
 
 `SourceManifest` records the source filename, compressed size, optional source-ZIP digest, member
-metadata, aggregate declared sizes, the selected conversation payload path, and its SHA-256 digest.
-Absolute host paths and wall-clock ingestion times are intentionally excluded so identical inputs
-and configuration produce identical IR bytes.
+metadata, aggregate declared sizes, and the ordered selected conversation payload paths. A
+single-part export also populates the backward-compatible singular path and digest fields; every
+selected member carries its own SHA-256 digest in the file manifest. Absolute host paths and
+wall-clock ingestion times are intentionally excluded so identical inputs and configuration produce
+identical IR bytes.
 
 ## Conversation graph
 
@@ -28,4 +30,3 @@ Recoverable anomalies use stable warning codes and JSON Pointer locations. Stric
 such warning, while tolerant mode preserves interpretable data.
 
 All IR models forbid undeclared fields and suppress input values in validation error text.
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
@@ -902,105 +903,126 @@ def _conversation_records(
     raise UnsupportedSchemaError("JSON root must be a conversation list or supported object")
 
 
+def normalize_conversation_payloads(
+    payloads: Iterable[tuple[str | PurePosixPath, Any]],
+    *,
+    limits: IngestLimits | None = None,
+) -> NormalizationResult:
+    """Normalize one or more decoded JSON members with shared corpus limits.
+
+    Parameters
+    ----------
+    payloads
+        Ordered ``(source_path, decoded JSON value)`` pairs. Each source value normally contains
+        a list of conversation objects. The iterable is consumed incrementally so multipart
+        exports do not retain every decoded source payload at once.
+    limits
+        Aggregate semantic record, node, and warning limits shared by all members.
+
+    Returns
+    -------
+    NormalizationResult
+        Normalized conversations plus corpus-level warnings. Each conversation retains the source
+        member path and its graph-specific warnings.
+
+    Raises
+    ------
+    UnsupportedSchemaError
+        If any JSON root has no recognized conversation-list shape.
+    ArchiveLimitError
+        If conversation or graph counts exceed configured limits.
+    """
+
+    active_limits = limits or IngestLimits()
+    result_warnings: list[ArchiveWarning] = []
+    budget = _WarningBudget(active_limits.max_warnings)
+    conversations: list[Conversation] = []
+    total_records = 0
+    total_nodes = 0
+    seen_ids: set[str] = set()
+    last_member_path: PurePosixPath | None = None
+    for source_path, payload in payloads:
+        member_path = PurePosixPath(source_path)
+        last_member_path = member_path
+        records = _conversation_records(
+            payload,
+            source_path=member_path,
+            result_warnings=result_warnings,
+            budget=budget,
+        )
+        total_records += len(records)
+        if total_records > active_limits.max_conversations:
+            raise ArchiveLimitError("payloads exceed the configured maximum conversation count")
+
+        for index, raw in enumerate(records):
+            if not isinstance(raw, dict):
+                budget.add(
+                    result_warnings,
+                    _warning(
+                        code="invalid_conversation_record",
+                        message="Non-object conversation record was skipped.",
+                        source_path=member_path,
+                        location=f"/{index}",
+                        context={"source_type": type(raw).__name__},
+                    ),
+                )
+                continue
+            mapping = raw.get("mapping")
+            if isinstance(mapping, dict):
+                total_nodes += len(mapping)
+                if total_nodes > active_limits.max_total_nodes:
+                    raise ArchiveLimitError(
+                        "payloads exceed the configured maximum total node count"
+                    )
+            conversation = _conversation(
+                raw,
+                source_path=member_path,
+                index=index,
+                limits=active_limits,
+                budget=budget,
+            )
+            if conversation.conversation_id is not None:
+                if conversation.conversation_id in seen_ids:
+                    budget.add(
+                        result_warnings,
+                        _warning(
+                            code="duplicate_conversation_id",
+                            message=(
+                                "Conversation identifier appears more than once; records were "
+                                "preserved."
+                            ),
+                            source_path=member_path,
+                            location=f"/{index}/id",
+                            conversation_id=conversation.conversation_id,
+                        ),
+                    )
+                seen_ids.add(conversation.conversation_id)
+            conversations.append(conversation)
+        del payload, records
+
+    if budget.suppressed:
+        assert last_member_path is not None
+        result_warnings.append(
+            _warning(
+                code="warnings_suppressed",
+                message="Additional normalization warnings were suppressed by the configured cap.",
+                source_path=last_member_path,
+                location="/",
+                context={"suppressed_count": budget.suppressed},
+            )
+        )
+    result_warnings.sort(
+        key=lambda item: (str(item.source_path or ""), item.code, item.location or "")
+    )
+    return NormalizationResult(conversations=conversations, warnings=result_warnings)
+
+
 def normalize_conversations_payload(
     payload: Any,
     *,
     source_path: str | PurePosixPath,
     limits: IngestLimits | None = None,
 ) -> NormalizationResult:
-    """Normalize decoded JSON into a branch-preserving Archive IR fragment.
+    """Normalize one decoded JSON member into a branch-preserving Archive IR fragment."""
 
-    Parameters
-    ----------
-    payload
-        Decoded JSON value. Canonical exports use a list of conversation objects.
-    source_path
-        Archive-relative path of the JSON member, used only for provenance and diagnostics.
-    limits
-        Semantic record, node, and warning limits.
-
-    Returns
-    -------
-    NormalizationResult
-        Normalized conversations plus payload-level warnings. Each conversation also carries its
-        graph-specific warnings.
-
-    Raises
-    ------
-    UnsupportedSchemaError
-        If the JSON root has no recognized conversation-list shape.
-    ArchiveLimitError
-        If conversation or graph counts exceed configured limits.
-    """
-
-    active_limits = limits or IngestLimits()
-    member_path = PurePosixPath(source_path)
-    result_warnings: list[ArchiveWarning] = []
-    budget = _WarningBudget(active_limits.max_warnings)
-    records = _conversation_records(
-        payload,
-        source_path=member_path,
-        result_warnings=result_warnings,
-        budget=budget,
-    )
-    if len(records) > active_limits.max_conversations:
-        raise ArchiveLimitError("payload exceeds the configured maximum conversation count")
-
-    conversations: list[Conversation] = []
-    total_nodes = 0
-    seen_ids: set[str] = set()
-    for index, raw in enumerate(records):
-        if not isinstance(raw, dict):
-            budget.add(
-                result_warnings,
-                _warning(
-                    code="invalid_conversation_record",
-                    message="Non-object conversation record was skipped.",
-                    source_path=member_path,
-                    location=f"/{index}",
-                    context={"source_type": type(raw).__name__},
-                ),
-            )
-            continue
-        mapping = raw.get("mapping")
-        if isinstance(mapping, dict):
-            total_nodes += len(mapping)
-            if total_nodes > active_limits.max_total_nodes:
-                raise ArchiveLimitError("payload exceeds the configured maximum total node count")
-        conversation = _conversation(
-            raw,
-            source_path=member_path,
-            index=index,
-            limits=active_limits,
-            budget=budget,
-        )
-        if conversation.conversation_id is not None:
-            if conversation.conversation_id in seen_ids:
-                budget.add(
-                    result_warnings,
-                    _warning(
-                        code="duplicate_conversation_id",
-                        message=(
-                            "Conversation identifier appears more than once; records were "
-                            "preserved."
-                        ),
-                        source_path=member_path,
-                        location=f"/{index}/id",
-                        conversation_id=conversation.conversation_id,
-                    ),
-                )
-            seen_ids.add(conversation.conversation_id)
-        conversations.append(conversation)
-
-    if budget.suppressed:
-        result_warnings.append(
-            _warning(
-                code="warnings_suppressed",
-                message="Additional normalization warnings were suppressed by the configured cap.",
-                source_path=member_path,
-                location="/",
-                context={"suppressed_count": budget.suppressed},
-            )
-        )
-    result_warnings.sort(key=lambda item: (item.code, item.location or ""))
-    return NormalizationResult(conversations=conversations, warnings=result_warnings)
+    return normalize_conversation_payloads([(source_path, payload)], limits=limits)
