@@ -1,4 +1,4 @@
-"""Normalization utilities for source export records."""
+"""Public normalization interfaces."""
 
 from chatgpt_archive_compiler.normalize.conversations import normalize_conversations_payload
 

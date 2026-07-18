@@ -1,177 +1,1006 @@
-"""Initial normalization for conversation JSON payloads.
-
-This module intentionally implements only a conservative first pass. It should accept
-schema variation and return warnings rather than assuming a single permanent export
-shape.
-"""
+"""Loss-aware normalization of ChatGPT conversation graph payloads."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import math
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import PurePosixPath
+from typing import Any, cast
 
+from pydantic import JsonValue
+
+from chatgpt_archive_compiler.exceptions import ArchiveLimitError, UnsupportedSchemaError
 from chatgpt_archive_compiler.models import (
+    ArchiveWarning,
     ContentBlock,
     ContentBlockType,
     Conversation,
+    IngestLimits,
     Message,
+    MessageNode,
+    NormalizationResult,
     Role,
+    WarningSeverity,
 )
 
 
-def _from_timestamp(value: Any) -> datetime | None:
+@dataclass(slots=True)
+class _WarningBudget:
+    """Bound detailed warnings so malformed payloads cannot exhaust memory."""
+
+    remaining: int
+    suppressed: int = 0
+
+    def add(self, target: list[ArchiveWarning], warning: ArchiveWarning) -> None:
+        """Append a warning when capacity remains, otherwise count it as suppressed."""
+
+        if self.remaining > 0:
+            target.append(warning)
+            self.remaining -= 1
+        else:
+            self.suppressed += 1
+
+
+def _json_pointer_part(value: str) -> str:
+    """Escape one JSON Pointer component according to RFC 6901."""
+
+    return value.replace("~", "~0").replace("/", "~1")
+
+
+def _as_json_value(value: Any) -> JsonValue:
+    """Return JSON-compatible source data without using lossy Python ``repr`` output."""
+
+    if value is None or isinstance(value, str | bool | int):
+        return cast(JsonValue, value)
+    if isinstance(value, float):
+        return cast(JsonValue, value if math.isfinite(value) else None)
+    if isinstance(value, list | tuple):
+        return cast(JsonValue, [_as_json_value(item) for item in value])
+    if isinstance(value, dict):
+        return cast(
+            JsonValue,
+            {str(key): _as_json_value(item) for key, item in value.items() if isinstance(key, str)},
+        )
+    return cast(JsonValue, {"unsupported_python_type": type(value).__name__})
+
+
+def _extras(record: dict[str, Any], known_keys: set[str]) -> dict[str, JsonValue]:
+    """Copy unknown source fields into a JSON-compatible extras mapping."""
+
+    return {key: _as_json_value(value) for key, value in record.items() if key not in known_keys}
+
+
+def _warning(
+    *,
+    code: str,
+    message: str,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None = None,
+    node_id: str | None = None,
+    severity: WarningSeverity = WarningSeverity.WARNING,
+    context: dict[str, JsonValue] | None = None,
+) -> ArchiveWarning:
+    """Construct a location-bearing warning without source text excerpts."""
+
+    return ArchiveWarning(
+        severity=severity,
+        code=code,
+        message=message,
+        source_path=source_path,
+        conversation_id=conversation_id,
+        node_id=node_id,
+        location=location,
+        context=context or {},
+    )
+
+
+def _timestamp(
+    value: Any,
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    node_id: str | None,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> datetime | None:
+    """Normalize a numeric epoch or ISO string to an aware UTC datetime."""
+
     if value is None:
         return None
-    if isinstance(value, int | float):
+    parsed: datetime | None = None
+    if isinstance(value, bool):
+        parsed = None
+    elif isinstance(value, int | float) and math.isfinite(value):
         try:
-            return datetime.fromtimestamp(value, tz=UTC)
+            parsed = datetime.fromtimestamp(value, tz=UTC)
         except (OSError, OverflowError, ValueError):
-            return None
+            parsed = None
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="naive_timestamp",
+                        message="Naive ISO timestamp was interpreted as UTC.",
+                        source_path=source_path,
+                        location=location,
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+                parsed = parsed.replace(tzinfo=UTC)
+            parsed = parsed.astimezone(UTC)
+        except ValueError:
+            parsed = None
+    if parsed is None:
+        budget.add(
+            warnings,
+            _warning(
+                code="invalid_timestamp",
+                message="Timestamp could not be normalized and was set to null.",
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+                node_id=node_id,
+                context={"source_type": type(value).__name__},
+            ),
+        )
+    return parsed
+
+
+def _role(
+    value: Any,
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    node_id: str,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> Role:
+    """Normalize a role string while retaining unknown-role provenance elsewhere."""
+
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return Role(value.casefold())
         except ValueError:
-            return None
-    return None
+            pass
+    budget.add(
+        warnings,
+        _warning(
+            code="unknown_author_role",
+            message="Unknown or malformed author role was normalized to 'unknown'.",
+            source_path=source_path,
+            location=location,
+            conversation_id=conversation_id,
+            node_id=node_id,
+            context={"source_type": type(value).__name__},
+        ),
+    )
+    return Role.UNKNOWN
 
 
-def _normalize_role(value: Any) -> Role:
-    if not isinstance(value, str):
-        return Role.UNKNOWN
-    try:
-        return Role(value)
-    except ValueError:
-        return Role.UNKNOWN
+def _dict_part_block(part: dict[str, Any], source_content_type: str | None) -> ContentBlock:
+    """Convert a structured multimodal part into a reference or unknown block."""
+
+    pointer = part.get("asset_pointer")
+    if not isinstance(pointer, str):
+        pointer = part.get("url") if isinstance(part.get("url"), str) else None
+    mime_type = part.get("mime_type") if isinstance(part.get("mime_type"), str) else ""
+    part_type = part.get("content_type") if isinstance(part.get("content_type"), str) else ""
+    classification_text = f"{mime_type} {part_type}".casefold()
+    block_type = ContentBlockType.UNKNOWN
+    if pointer is not None:
+        block_type = ContentBlockType.FILE_REFERENCE
+        if "image" in classification_text:
+            block_type = ContentBlockType.IMAGE_REFERENCE
+        elif "audio" in classification_text:
+            block_type = ContentBlockType.AUDIO_REFERENCE
+    return ContentBlock(
+        type=block_type,
+        reference=pointer,
+        source_content_type=source_content_type,
+        metadata={"raw_part": _as_json_value(part)},
+    )
 
 
-def _content_blocks_from_message(message: dict[str, Any]) -> list[ContentBlock]:
-    content = message.get("content") or {}
-    content_type = content.get("content_type")
+def _content_blocks(
+    content: Any,
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    node_id: str,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> list[ContentBlock]:
+    """Normalize message content while preserving unsupported JSON structures."""
 
+    if content is None:
+        return []
+    if not isinstance(content, dict):
+        budget.add(
+            warnings,
+            _warning(
+                code="invalid_content",
+                message="Message content was not an object and was retained as unknown data.",
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+                node_id=node_id,
+                context={"source_type": type(content).__name__},
+            ),
+        )
+        return [
+            ContentBlock(
+                type=ContentBlockType.UNKNOWN,
+                metadata={"raw_content": _as_json_value(content)},
+            )
+        ]
+
+    raw_content_type = content.get("content_type")
+    content_type = raw_content_type if isinstance(raw_content_type, str) else None
     if content_type in {"text", "multimodal_text"}:
-        parts = content.get("parts") or []
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            budget.add(
+                warnings,
+                _warning(
+                    code="invalid_content_parts",
+                    message="Text content parts were not a list and were retained as unknown data.",
+                    source_path=source_path,
+                    location=f"{location}/parts",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                    context={"source_type": type(parts).__name__},
+                ),
+            )
+            return [
+                ContentBlock(
+                    type=ContentBlockType.UNKNOWN,
+                    source_content_type=content_type,
+                    metadata={"raw_content": _as_json_value(content)},
+                )
+            ]
+
         blocks: list[ContentBlock] = []
         for part in parts:
             if isinstance(part, str):
-                blocks.append(ContentBlock(type=ContentBlockType.MARKDOWN, text=part))
+                blocks.append(
+                    ContentBlock(
+                        type=ContentBlockType.MARKDOWN,
+                        text=part,
+                        source_content_type=content_type,
+                    )
+                )
             elif isinstance(part, dict):
+                blocks.append(_dict_part_block(part, content_type))
+            else:
                 blocks.append(
                     ContentBlock(
                         type=ContentBlockType.UNKNOWN,
-                        text=str(part),
-                        metadata={"raw_part": part},
+                        source_content_type=content_type,
+                        metadata={"raw_part": _as_json_value(part)},
                     )
                 )
         return blocks
 
-    if isinstance(content, dict):
-        return [
-            ContentBlock(
-                type=ContentBlockType.UNKNOWN,
-                text=str(content),
-                metadata={"content_type": content_type},
-            )
-        ]
+    if content_type == "code":
+        code_text = content.get("text")
+        language = content.get("language")
+        if isinstance(code_text, str):
+            return [
+                ContentBlock(
+                    type=ContentBlockType.CODE,
+                    text=code_text,
+                    language=language if isinstance(language, str) else None,
+                    source_content_type=content_type,
+                )
+            ]
 
-    return []
+    if content_type in {"execution_output", "tool_result"}:
+        result = content.get("text", content.get("result"))
+        if isinstance(result, str):
+            return [
+                ContentBlock(
+                    type=ContentBlockType.TOOL_RESULT,
+                    text=result,
+                    source_content_type=content_type,
+                )
+            ]
+
+    budget.add(
+        warnings,
+        _warning(
+            code="unknown_content_type",
+            message="Unsupported content shape was retained as an unknown block.",
+            source_path=source_path,
+            location=location,
+            conversation_id=conversation_id,
+            node_id=node_id,
+            context={"content_type": content_type},
+        ),
+    )
+    return [
+        ContentBlock(
+            type=ContentBlockType.UNKNOWN,
+            source_content_type=content_type,
+            metadata={"raw_content": _as_json_value(content)},
+        )
+    ]
 
 
-def _message_from_node(node_id: str, node: dict[str, Any]) -> Message | None:
-    raw_message = node.get("message")
-    if not isinstance(raw_message, dict):
-        return None
+def _message(
+    raw_message: dict[str, Any],
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    node_id: str,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> Message:
+    """Normalize one message object without assuming nested field types."""
 
-    author = raw_message.get("author") or {}
-    role = _normalize_role(author.get("role"))
+    author_raw = raw_message.get("author")
+    author = author_raw if isinstance(author_raw, dict) else {}
+    if author_raw is not None and not isinstance(author_raw, dict):
+        budget.add(
+            warnings,
+            _warning(
+                code="invalid_author",
+                message="Message author was not an object.",
+                source_path=source_path,
+                location=f"{location}/author",
+                conversation_id=conversation_id,
+                node_id=node_id,
+            ),
+        )
 
-    metadata = raw_message.get("metadata") or {}
-    model = metadata.get("model_slug") or metadata.get("default_model_slug")
+    metadata_raw = raw_message.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    if metadata_raw is not None and not isinstance(metadata_raw, dict):
+        budget.add(
+            warnings,
+            _warning(
+                code="invalid_message_metadata",
+                message="Message metadata was not an object and was retained in source extras.",
+                source_path=source_path,
+                location=f"{location}/metadata",
+                conversation_id=conversation_id,
+                node_id=node_id,
+            ),
+        )
+
+    raw_role = author.get("role")
+    raw_end_turn = raw_message.get("end_turn")
+    if raw_end_turn is not None and not isinstance(raw_end_turn, bool):
+        budget.add(
+            warnings,
+            _warning(
+                code="invalid_end_turn",
+                message="Message end_turn was not boolean and was set to null.",
+                source_path=source_path,
+                location=f"{location}/end_turn",
+                conversation_id=conversation_id,
+                node_id=node_id,
+            ),
+        )
+
+    model_value = metadata.get("model_slug", metadata.get("default_model_slug"))
+    known_keys = {
+        "id",
+        "author",
+        "create_time",
+        "update_time",
+        "content",
+        "metadata",
+        "recipient",
+        "status",
+        "end_turn",
+    }
+    source_extras = _extras(raw_message, known_keys)
+    if author_raw is not None and not isinstance(author_raw, dict):
+        source_extras["raw_author"] = _as_json_value(author_raw)
+    if metadata_raw is not None and not isinstance(metadata_raw, dict):
+        source_extras["raw_metadata"] = _as_json_value(metadata_raw)
+    if not isinstance(raw_role, str) or raw_role.casefold() not in {role.value for role in Role}:
+        source_extras["raw_author_role"] = _as_json_value(raw_role)
 
     return Message(
-        id=raw_message.get("id") or node_id,
-        role=role,
-        created_at=_from_timestamp(raw_message.get("create_time")),
-        content=_content_blocks_from_message(raw_message),
-        model=model if isinstance(model, str) else None,
-        parent_id=node.get("parent"),
-        children_ids=[str(child) for child in node.get("children") or []],
-        raw_metadata={"node": node, "message_metadata": metadata},
+        message_id=raw_message.get("id") if isinstance(raw_message.get("id"), str) else None,
+        role=_role(
+            raw_role,
+            source_path=source_path,
+            location=f"{location}/author/role",
+            conversation_id=conversation_id,
+            node_id=node_id,
+            warnings=warnings,
+            budget=budget,
+        ),
+        author_name=author.get("name") if isinstance(author.get("name"), str) else None,
+        created_at=_timestamp(
+            raw_message.get("create_time"),
+            source_path=source_path,
+            location=f"{location}/create_time",
+            conversation_id=conversation_id,
+            node_id=node_id,
+            warnings=warnings,
+            budget=budget,
+        ),
+        updated_at=_timestamp(
+            raw_message.get("update_time"),
+            source_path=source_path,
+            location=f"{location}/update_time",
+            conversation_id=conversation_id,
+            node_id=node_id,
+            warnings=warnings,
+            budget=budget,
+        ),
+        content=_content_blocks(
+            raw_message.get("content"),
+            source_path=source_path,
+            location=f"{location}/content",
+            conversation_id=conversation_id,
+            node_id=node_id,
+            warnings=warnings,
+            budget=budget,
+        ),
+        model=model_value if isinstance(model_value, str) else None,
+        recipient=(
+            raw_message.get("recipient") if isinstance(raw_message.get("recipient"), str) else None
+        ),
+        status=raw_message.get("status") if isinstance(raw_message.get("status"), str) else None,
+        end_turn=raw_end_turn if isinstance(raw_end_turn, bool) else None,
+        metadata={str(key): _as_json_value(value) for key, value in metadata.items()},
+        source_extras=source_extras,
     )
 
 
-def _linearize_mapping(mapping: dict[str, Any], current_node: str | None) -> list[Message]:
-    """Return a best-effort primary message path from a mapping graph.
+def _current_path(
+    current_node: Any,
+    nodes_by_id: dict[str, MessageNode],
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> tuple[str | None, list[str]]:
+    """Derive only the declared current node's ancestor path without branch guessing."""
 
-    The first implementation follows parent pointers from the current node to root,
-    then reverses the chain. Alternate branches are preserved in raw metadata but are
-    not yet emitted as separate transcript branches.
-    """
+    if current_node is None:
+        budget.add(
+            warnings,
+            _warning(
+                code="missing_current_node",
+                message="Conversation has no declared current node; visible path is empty.",
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+            ),
+        )
+        return None, []
+    if not isinstance(current_node, str) or current_node not in nodes_by_id:
+        budget.add(
+            warnings,
+            _warning(
+                code="unknown_current_node",
+                message="Declared current node is absent from the mapping; visible path is empty.",
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+                context={"source_type": type(current_node).__name__},
+            ),
+        )
+        return current_node if isinstance(current_node, str) else None, []
 
-    if not current_node or current_node not in mapping:
-        node_ids: Iterable[str] = mapping.keys()
-        messages = []
-        for node_id in node_ids:
-            node = mapping.get(node_id)
-            if isinstance(node, dict):
-                parsed = _message_from_node(node_id, node)
-                if parsed is not None:
-                    messages.append(parsed)
-        return messages
-
-    chain: list[tuple[str, dict[str, Any]]] = []
+    reverse_path: list[str] = []
     seen: set[str] = set()
     node_id: str | None = current_node
-
-    while node_id and node_id in mapping and node_id not in seen:
-        seen.add(node_id)
-        node = mapping[node_id]
-        if not isinstance(node, dict):
-            break
-        chain.append((node_id, node))
-        parent = node.get("parent")
-        node_id = parent if isinstance(parent, str) else None
-
-    messages = []
-    for node_id, node in reversed(chain):
-        parsed = _message_from_node(node_id, node)
-        if parsed is not None:
-            messages.append(parsed)
-    return messages
-
-
-def normalize_conversations_payload(payload: Any) -> list[Conversation]:
-    """Normalize a decoded conversations payload into Conversation objects."""
-
-    if isinstance(payload, dict):
-        raw_conversations = payload.get("conversations") or payload.get("items") or []
-    else:
-        raw_conversations = payload
-
-    if not isinstance(raw_conversations, list):
-        return []
-
-    conversations: list[Conversation] = []
-    for raw in raw_conversations:
-        if not isinstance(raw, dict):
-            continue
-
-        mapping = raw.get("mapping") or {}
-        messages: list[Message]
-        if isinstance(mapping, dict):
-            messages = _linearize_mapping(mapping, raw.get("current_node"))
-        else:
-            messages = []
-
-        conversations.append(
-            Conversation(
-                id=raw.get("id") if isinstance(raw.get("id"), str) else None,
-                title=raw.get("title") if isinstance(raw.get("title"), str) else None,
-                created_at=_from_timestamp(raw.get("create_time")),
-                updated_at=_from_timestamp(raw.get("update_time")),
-                messages=messages,
-                raw_metadata={"source_record": raw},
+    while node_id is not None:
+        if node_id in seen:
+            budget.add(
+                warnings,
+                _warning(
+                    code="graph_cycle",
+                    message="Cycle encountered while deriving the current path; path is empty.",
+                    source_path=source_path,
+                    location=location,
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
             )
+            return current_node, []
+        seen.add(node_id)
+        node = nodes_by_id.get(node_id)
+        if node is None:
+            budget.add(
+                warnings,
+                _warning(
+                    code="dangling_parent",
+                    message="Current path ended at a missing parent node.",
+                    source_path=source_path,
+                    location=location,
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+            break
+        reverse_path.append(node_id)
+        node_id = node.parent_node_id
+    return current_node, list(reversed(reverse_path))
+
+
+def _validate_graph(
+    nodes_by_id: dict[str, MessageNode],
+    *,
+    source_path: PurePosixPath,
+    location: str,
+    conversation_id: str | None,
+    warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> None:
+    """Report graph inconsistencies without mutating source-declared edges."""
+
+    for node_id in sorted(nodes_by_id):
+        node = nodes_by_id[node_id]
+        if len(node.children_node_ids) != len(set(node.children_node_ids)):
+            budget.add(
+                warnings,
+                _warning(
+                    code="duplicate_child_id",
+                    message="Node declares a child identifier more than once.",
+                    source_path=source_path,
+                    location=f"{location}/{_json_pointer_part(node_id)}/children",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+        if node.parent_node_id is not None:
+            parent = nodes_by_id.get(node.parent_node_id)
+            if parent is None:
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="dangling_parent",
+                        message="Node refers to a parent absent from the mapping.",
+                        source_path=source_path,
+                        location=f"{location}/{_json_pointer_part(node_id)}/parent",
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+            elif node_id not in parent.children_node_ids:
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="graph_edge_mismatch",
+                        message="Parent and child edge declarations disagree.",
+                        source_path=source_path,
+                        location=f"{location}/{_json_pointer_part(node_id)}/parent",
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+        for child_id in node.children_node_ids:
+            child = nodes_by_id.get(child_id)
+            if child is None:
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="dangling_child",
+                        message="Node refers to a child absent from the mapping.",
+                        source_path=source_path,
+                        location=f"{location}/{_json_pointer_part(node_id)}/children",
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+            elif child.parent_node_id != node_id:
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="graph_edge_mismatch",
+                        message="Parent and child edge declarations disagree.",
+                        source_path=source_path,
+                        location=f"{location}/{_json_pointer_part(node_id)}/children",
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+
+    roots = [node.node_id for node in nodes_by_id.values() if node.parent_node_id is None]
+    reachable: set[str] = set()
+    frontier = sorted(roots, reverse=True)
+    while frontier:
+        node_id = frontier.pop()
+        if node_id in reachable or node_id not in nodes_by_id:
+            continue
+        reachable.add(node_id)
+        frontier.extend(sorted(nodes_by_id[node_id].children_node_ids, reverse=True))
+    orphan_ids = sorted(set(nodes_by_id) - reachable)
+    if orphan_ids:
+        budget.add(
+            warnings,
+            _warning(
+                code="orphan_component",
+                message="Mapping contains nodes not reachable from a declared root.",
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+                context={
+                    "count": len(orphan_ids),
+                    "sample_node_ids": _as_json_value(orphan_ids[:20]),
+                },
+            ),
         )
 
-    return conversations
+
+def _conversation(
+    raw: dict[str, Any],
+    *,
+    source_path: PurePosixPath,
+    index: int,
+    limits: IngestLimits,
+    budget: _WarningBudget,
+) -> Conversation:
+    """Normalize one conversation and preserve its complete node graph."""
+
+    base_location = f"/{index}"
+    conversation_id = raw.get("id") if isinstance(raw.get("id"), str) else None
+    warnings: list[ArchiveWarning] = []
+    mapping_raw = raw.get("mapping")
+    mapping = mapping_raw if isinstance(mapping_raw, dict) else {}
+    if not isinstance(mapping_raw, dict):
+        budget.add(
+            warnings,
+            _warning(
+                code="missing_mapping",
+                message="Conversation mapping is missing or malformed.",
+                source_path=source_path,
+                location=f"{base_location}/mapping",
+                conversation_id=conversation_id,
+            ),
+        )
+    if len(mapping) > limits.max_nodes_per_conversation:
+        raise ArchiveLimitError(
+            "conversation exceeds the configured maximum nodes per conversation"
+        )
+
+    nodes_by_id: dict[str, MessageNode] = {}
+    for raw_node_id in sorted(mapping, key=lambda value: str(value)):
+        node_id = str(raw_node_id)
+        node_location = f"{base_location}/mapping/{_json_pointer_part(node_id)}"
+        raw_node = mapping[raw_node_id]
+        if not isinstance(raw_node, dict):
+            budget.add(
+                warnings,
+                _warning(
+                    code="invalid_mapping_node",
+                    message="Mapping node was not an object and was retained as source data.",
+                    source_path=source_path,
+                    location=node_location,
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+            nodes_by_id[node_id] = MessageNode(
+                node_id=node_id,
+                source_extras={"raw_node": _as_json_value(raw_node)},
+            )
+            continue
+
+        embedded_id = raw_node.get("id")
+        source_extras = _extras(raw_node, {"id", "parent", "children", "message"})
+        if isinstance(embedded_id, str) and embedded_id != node_id:
+            source_extras["embedded_id"] = embedded_id
+            budget.add(
+                warnings,
+                _warning(
+                    code="node_id_mismatch",
+                    message="Embedded node id differs from its authoritative mapping key.",
+                    source_path=source_path,
+                    location=f"{node_location}/id",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+
+        parent_raw = raw_node.get("parent")
+        parent_node_id = parent_raw if isinstance(parent_raw, str) else None
+        if parent_raw is not None and not isinstance(parent_raw, str):
+            source_extras["raw_parent"] = _as_json_value(parent_raw)
+            budget.add(
+                warnings,
+                _warning(
+                    code="invalid_parent_id",
+                    message="Node parent identifier was not a string and was set to null.",
+                    source_path=source_path,
+                    location=f"{node_location}/parent",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+
+        children_raw = raw_node.get("children")
+        children_node_ids: list[str] = []
+        if isinstance(children_raw, list):
+            children_node_ids = [child for child in children_raw if isinstance(child, str)]
+            if len(children_node_ids) != len(children_raw):
+                source_extras["raw_children"] = _as_json_value(children_raw)
+                budget.add(
+                    warnings,
+                    _warning(
+                        code="invalid_child_id",
+                        message="Non-string child identifiers were omitted from normalized edges.",
+                        source_path=source_path,
+                        location=f"{node_location}/children",
+                        conversation_id=conversation_id,
+                        node_id=node_id,
+                    ),
+                )
+        elif children_raw is not None:
+            source_extras["raw_children"] = _as_json_value(children_raw)
+            budget.add(
+                warnings,
+                _warning(
+                    code="invalid_children",
+                    message="Node children were not a list and normalized edges were left empty.",
+                    source_path=source_path,
+                    location=f"{node_location}/children",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+
+        message_raw = raw_node.get("message")
+        normalized_message: Message | None = None
+        if isinstance(message_raw, dict):
+            normalized_message = _message(
+                message_raw,
+                source_path=source_path,
+                location=f"{node_location}/message",
+                conversation_id=conversation_id,
+                node_id=node_id,
+                warnings=warnings,
+                budget=budget,
+            )
+        elif message_raw is not None:
+            source_extras["raw_message"] = _as_json_value(message_raw)
+            budget.add(
+                warnings,
+                _warning(
+                    code="invalid_message",
+                    message="Node message was not an object and was retained as source data.",
+                    source_path=source_path,
+                    location=f"{node_location}/message",
+                    conversation_id=conversation_id,
+                    node_id=node_id,
+                ),
+            )
+
+        nodes_by_id[node_id] = MessageNode(
+            node_id=node_id,
+            parent_node_id=parent_node_id,
+            children_node_ids=children_node_ids,
+            message=normalized_message,
+            source_extras=source_extras,
+        )
+
+    _validate_graph(
+        nodes_by_id,
+        source_path=source_path,
+        location=f"{base_location}/mapping",
+        conversation_id=conversation_id,
+        warnings=warnings,
+        budget=budget,
+    )
+    current_node_id, current_path_node_ids = _current_path(
+        raw.get("current_node"),
+        nodes_by_id,
+        source_path=source_path,
+        location=f"{base_location}/current_node",
+        conversation_id=conversation_id,
+        warnings=warnings,
+        budget=budget,
+    )
+    current_path_set = set(current_path_node_ids)
+    for node in nodes_by_id.values():
+        node.is_on_current_path = node.node_id in current_path_set
+
+    known_keys = {
+        "id",
+        "title",
+        "create_time",
+        "update_time",
+        "current_node",
+        "mapping",
+    }
+    return Conversation(
+        conversation_id=conversation_id,
+        title=raw.get("title") if isinstance(raw.get("title"), str) else None,
+        created_at=_timestamp(
+            raw.get("create_time"),
+            source_path=source_path,
+            location=f"{base_location}/create_time",
+            conversation_id=conversation_id,
+            node_id=None,
+            warnings=warnings,
+            budget=budget,
+        ),
+        updated_at=_timestamp(
+            raw.get("update_time"),
+            source_path=source_path,
+            location=f"{base_location}/update_time",
+            conversation_id=conversation_id,
+            node_id=None,
+            warnings=warnings,
+            budget=budget,
+        ),
+        source_path=source_path,
+        current_node_id=current_node_id,
+        current_path_node_ids=current_path_node_ids,
+        nodes=[nodes_by_id[node_id] for node_id in sorted(nodes_by_id)],
+        source_extras=_extras(raw, known_keys),
+        warnings=sorted(
+            warnings,
+            key=lambda item: (item.code, item.location or "", item.node_id or ""),
+        ),
+    )
+
+
+def _conversation_records(
+    payload: Any,
+    *,
+    source_path: PurePosixPath,
+    result_warnings: list[ArchiveWarning],
+    budget: _WarningBudget,
+) -> list[Any]:
+    """Recognize supported payload roots without truthiness-based fallthrough."""
+
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if "conversations" in payload:
+            records = payload["conversations"]
+            wrapper_key = "conversations"
+        elif "items" in payload:
+            records = payload["items"]
+            wrapper_key = "items"
+        elif "mapping" in payload:
+            budget.add(
+                result_warnings,
+                _warning(
+                    code="single_conversation_payload",
+                    message="Single conversation object was accepted as a one-item payload.",
+                    source_path=source_path,
+                    location="/",
+                ),
+            )
+            return [payload]
+        else:
+            raise UnsupportedSchemaError("JSON root object has no recognized conversation field")
+        if not isinstance(records, list):
+            raise UnsupportedSchemaError(f"payload field '{wrapper_key}' is not a list")
+        budget.add(
+            result_warnings,
+            _warning(
+                code="wrapped_payload_root",
+                message="Wrapped conversation-list payload was normalized.",
+                source_path=source_path,
+                location=f"/{wrapper_key}",
+                context={"wrapper_key": wrapper_key},
+            ),
+        )
+        return records
+    raise UnsupportedSchemaError("JSON root must be a conversation list or supported object")
+
+
+def normalize_conversations_payload(
+    payload: Any,
+    *,
+    source_path: str | PurePosixPath,
+    limits: IngestLimits | None = None,
+) -> NormalizationResult:
+    """Normalize decoded JSON into a branch-preserving Archive IR fragment.
+
+    Parameters
+    ----------
+    payload
+        Decoded JSON value. Canonical exports use a list of conversation objects.
+    source_path
+        Archive-relative path of the JSON member, used only for provenance and diagnostics.
+    limits
+        Semantic record, node, and warning limits.
+
+    Returns
+    -------
+    NormalizationResult
+        Normalized conversations plus payload-level warnings. Each conversation also carries its
+        graph-specific warnings.
+
+    Raises
+    ------
+    UnsupportedSchemaError
+        If the JSON root has no recognized conversation-list shape.
+    ArchiveLimitError
+        If conversation or graph counts exceed configured limits.
+    """
+
+    active_limits = limits or IngestLimits()
+    member_path = PurePosixPath(source_path)
+    result_warnings: list[ArchiveWarning] = []
+    budget = _WarningBudget(active_limits.max_warnings)
+    records = _conversation_records(
+        payload,
+        source_path=member_path,
+        result_warnings=result_warnings,
+        budget=budget,
+    )
+    if len(records) > active_limits.max_conversations:
+        raise ArchiveLimitError("payload exceeds the configured maximum conversation count")
+
+    conversations: list[Conversation] = []
+    total_nodes = 0
+    seen_ids: set[str] = set()
+    for index, raw in enumerate(records):
+        if not isinstance(raw, dict):
+            budget.add(
+                result_warnings,
+                _warning(
+                    code="invalid_conversation_record",
+                    message="Non-object conversation record was skipped.",
+                    source_path=member_path,
+                    location=f"/{index}",
+                    context={"source_type": type(raw).__name__},
+                ),
+            )
+            continue
+        mapping = raw.get("mapping")
+        if isinstance(mapping, dict):
+            total_nodes += len(mapping)
+            if total_nodes > active_limits.max_total_nodes:
+                raise ArchiveLimitError("payload exceeds the configured maximum total node count")
+        conversation = _conversation(
+            raw,
+            source_path=member_path,
+            index=index,
+            limits=active_limits,
+            budget=budget,
+        )
+        if conversation.conversation_id is not None:
+            if conversation.conversation_id in seen_ids:
+                budget.add(
+                    result_warnings,
+                    _warning(
+                        code="duplicate_conversation_id",
+                        message=(
+                            "Conversation identifier appears more than once; records were "
+                            "preserved."
+                        ),
+                        source_path=member_path,
+                        location=f"/{index}/id",
+                        conversation_id=conversation.conversation_id,
+                    ),
+                )
+            seen_ids.add(conversation.conversation_id)
+        conversations.append(conversation)
+
+    if budget.suppressed:
+        result_warnings.append(
+            _warning(
+                code="warnings_suppressed",
+                message="Additional normalization warnings were suppressed by the configured cap.",
+                source_path=member_path,
+                location="/",
+                context={"suppressed_count": budget.suppressed},
+            )
+        )
+    result_warnings.sort(key=lambda item: (item.code, item.location or ""))
+    return NormalizationResult(conversations=conversations, warnings=result_warnings)

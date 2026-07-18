@@ -1,31 +1,17 @@
-# Export Format Notes
+# Export format notes
 
-The parser must treat the source export format as semi-stable rather than fixed. The first implementation should support common conversation JSON layouts while preserving unknown fields and emitting warnings.
+The source format is treated as semi-stable rather than permanent.
 
-## Expected file candidates
+Payload selection uses deterministic precedence: root `conversations.json`, then exactly one
+case-insensitive basename match, then exactly one conversation-like JSON filename. Equally ranked
+matches are fatal rather than guessed.
 
-- `conversations.json`
-- numbered or split conversation JSON files
-- shared conversation metadata JSON files
-- auxiliary metadata files
+Canonical payload roots are conversation lists. A `{ "conversations": [...] }` or
+`{ "items": [...] }` wrapper and a single mapping-bearing conversation object are accepted with a
+schema-drift warning. JSON must be strict UTF-8; a UTF-8 BOM is accepted and recorded. Non-finite
+JSON constants are rejected.
 
-## Parser requirements
+ZIP input is never extracted. Metadata preflight rejects unsafe paths, duplicate/case-colliding
+paths, symlinks, encryption, excessive archive/member sizes, and suspicious compression ratios
+before any member is decompressed. Selected-member size is enforced again while streaming.
 
-- Locate likely conversation files from the ZIP manifest.
-- Avoid blind extraction.
-- Decode JSON with clear error reporting.
-- Preserve raw records in metadata during early development.
-- Reconstruct the primary visible path when conversations are represented as a message graph.
-- Record unresolved branches or orphan nodes as warnings or future sidecars.
-
-## Synthetic fixtures
-
-Tests must use synthetic exports only. Fixtures should cover:
-
-- minimal valid export;
-- missing title;
-- empty conversation;
-- branching/regenerated messages;
-- malformed message content;
-- multiple source files;
-- unsafe ZIP path entries.

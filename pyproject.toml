@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chatgpt-archive-compiler"
-version = "0.0.1"
+version = "0.1.0a1"
 description = "Local-first compiler for ChatGPT data exports into analyzed, redacted, book-quality archives."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,8 +39,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "black>=24.4",
+  "black[jupyter]>=24.4",
   "mypy>=1.10",
+  "pre-commit>=3.7",
   "pytest>=8.2",
   "pytest-cov>=5.0",
   "ruff>=0.5",
