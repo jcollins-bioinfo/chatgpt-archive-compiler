@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chatgpt-archive-compiler"
-version = "0.1.0a1"
+dynamic = ["version"]
 description = "Local-first compiler for ChatGPT data exports into analyzed, redacted, book-quality archives."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,6 +63,9 @@ semantic = [
 
 [project.scripts]
 chatgpt-archive = "chatgpt_archive_compiler.cli:app"
+
+[tool.hatch.version]
+path = "src/chatgpt_archive_compiler/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chatgpt_archive_compiler"]
