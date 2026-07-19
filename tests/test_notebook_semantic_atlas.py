@@ -69,7 +69,7 @@ def test_budgeted_semantic_notebook_is_clean_and_python_cells_compile() -> None:
 
     notebook = _load_budgeted_notebook()
     assert notebook["nbformat"] == 4
-    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v3"
+    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v4"
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] != "code":
             continue
@@ -97,6 +97,10 @@ def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_ga
     assert "Resume identity mismatch in fields:" in source
     assert "3340adf265f6b5fa997de004fa8e04da37edb6de" in source
     assert "73a5e341e1a3fa5d3a45621fddc0ca8623f6018f" in source
+    assert "a7149b15ed60a2ecb159529acc58ca53b94896ce" in source
+    assert "allow_ceiling_increase=bool(RESUME_OUTPUT_DIRECTORY.strip())" in source
+    assert "planned_budget < existing_budget" in source
+    assert "safe_semantic_error_summary" in source
     assert source.count("max_retries=0") == 4
     assert "estimate_budgeted_semantic_cost" in source
     assert "scheduled_plan_fits_hard_budget" in source
