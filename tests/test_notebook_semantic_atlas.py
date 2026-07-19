@@ -96,6 +96,7 @@ def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_ga
     assert "Resume-selected matching Archive IR:" in source
     assert "Resume identity mismatch in fields:" in source
     assert "3340adf265f6b5fa997de004fa8e04da37edb6de" in source
+    assert "73a5e341e1a3fa5d3a45621fddc0ca8623f6018f" in source
     assert source.count("max_retries=0") == 4
     assert "estimate_budgeted_semantic_cost" in source
     assert "scheduled_plan_fits_hard_budget" in source
