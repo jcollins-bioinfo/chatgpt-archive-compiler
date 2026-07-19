@@ -31,6 +31,8 @@ class ContentBlockType(StrEnum):
     FILE_REFERENCE = "file_reference"
     IMAGE_REFERENCE = "image_reference"
     AUDIO_REFERENCE = "audio_reference"
+    THINKING_TRACE = "thinking_trace"
+    REASONING_SUMMARY = "reasoning_summary"
     UNKNOWN = "unknown"
 
 

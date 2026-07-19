@@ -35,4 +35,9 @@ Recognized fields receive typed representations. Unknown valid JSON fields are r
 Recoverable anomalies use stable warning codes and JSON Pointer locations. Strict mode rejects any
 such warning, while tolerant mode preserves interpretable data.
 
+The observed source content types `thoughts` and `reasoning_recap` are intentionally represented as
+`THINKING_TRACE` and `REASONING_SUMMARY`. Their complete source object remains in block metadata
+because OpenAI does not publish a field-level export schema for these records. They are distinct
+from ordinary assistant answers and are excluded from rendered documents unless explicitly enabled.
+
 All IR models forbid undeclared fields and suppress input values in validation error text.

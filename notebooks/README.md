@@ -3,13 +3,17 @@
 Notebooks demonstrate and validate package APIs; canonical implementation belongs under
 `src/chatgpt_archive_compiler/`.
 
-- `00_project_bootstrap_colab.ipynb`: immutable, commit-specific private-repository checkout in
-  Google Drive plus synthetic numbered-multipart ZIP → Archive IR validation. Existing dirty or
-  incompatible checkouts are left untouched.
-- `00_project_bootstrap_colab_v2.ipynb`: preferred ephemeral-checkout workflow. Repository code is
+- `00_project_bootstrap_colab_v2.ipynb`: ingestion/diagnostic workflow. Repository code is
   cloned beneath `/content`, parent-only graphs are validated synthetically, and only real inputs
   and generated outputs persist in Google Drive.
-- Later notebooks will address corpus analysis, redaction, document construction, and rendering.
+- `01_compile_archive_colab.ipynb`: compact full compiler workflow. It combines re-ingestion,
+  structural analysis, explicit redaction, document construction, annual HTML/PDF rendering, and
+  integrity checks while keeping canonical implementation in tested package modules.
+- `00_project_bootstrap_colab.ipynb`: retained as the earlier immutable Drive-checkout bootstrap;
+  new runs should use the ephemeral workflows above.
+
+These two active notebooks cover the intended operational pipeline. A separate visual-QA notebook
+will be added only if review of real rendered volumes proves it necessary.
 
 Rules:
 

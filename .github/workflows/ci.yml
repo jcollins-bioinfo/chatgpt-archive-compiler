@@ -33,7 +33,9 @@ jobs:
       - name: Run strict type checking
         run: mypy src/chatgpt_archive_compiler
       - name: Validate notebook JSON
-        run: python -m json.tool notebooks/00_project_bootstrap_colab.ipynb > /dev/null
+        run: |
+          for notebook in notebooks/*.ipynb; do
+            python -m json.tool "$notebook" > /dev/null
+          done
       - name: Run tests
         run: pytest
-

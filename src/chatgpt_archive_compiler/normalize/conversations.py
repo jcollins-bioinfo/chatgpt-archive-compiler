@@ -210,6 +210,50 @@ def _dict_part_block(part: dict[str, Any], source_content_type: str | None) -> C
     )
 
 
+def _reasoning_text_fragments(value: Any, *, depth: int = 0) -> list[str]:
+    """Extract displayable text from documented-as-opaque reasoning content shapes.
+
+    ChatGPT's public export documentation does not define these internal payloads. Extraction is
+    therefore deliberately conservative and the complete source object is retained on the block.
+    """
+
+    if depth > 8:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [
+            fragment
+            for item in value
+            for fragment in _reasoning_text_fragments(item, depth=depth + 1)
+        ]
+    if not isinstance(value, dict):
+        return []
+
+    fragments: list[str] = []
+    for key in ("parts", "thoughts", "summary", "recap", "text", "content"):
+        if key in value:
+            fragments.extend(_reasoning_text_fragments(value[key], depth=depth + 1))
+    return fragments
+
+
+def _reasoning_block(content: dict[str, Any], content_type: str) -> ContentBlock:
+    """Classify a reasoning trace or recap while preserving its exact source object."""
+
+    block_type = (
+        ContentBlockType.THINKING_TRACE
+        if content_type == "thoughts"
+        else ContentBlockType.REASONING_SUMMARY
+    )
+    fragments = _reasoning_text_fragments(content)
+    return ContentBlock(
+        type=block_type,
+        text="\n\n".join(fragments) if fragments else None,
+        source_content_type=content_type,
+        metadata={"raw_content": _as_json_value(content)},
+    )
+
+
 def _content_blocks(
     content: Any,
     *,
@@ -314,6 +358,9 @@ def _content_blocks(
                     source_content_type=content_type,
                 )
             ]
+
+    if content_type in {"thoughts", "reasoning_recap"}:
+        return [_reasoning_block(content, content_type)]
 
     budget.add(
         warnings,

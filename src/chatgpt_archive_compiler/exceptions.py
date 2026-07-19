@@ -1,4 +1,4 @@
-"""Typed failures raised by archive ingestion and serialization."""
+"""Typed failures raised by archive ingestion, serialization, and compilation."""
 
 from __future__ import annotations
 
@@ -73,3 +73,7 @@ class ArchiveSerializationError(ArchiveCompilerError):
     def __init__(self, path: str | Path, message: str) -> None:
         self.path = Path(path)
         super().__init__(f"{message}: {self.path}")
+
+
+class ArchiveCompilationError(ArchiveCompilerError):
+    """Raised when a local document artifact cannot be constructed or rendered."""
