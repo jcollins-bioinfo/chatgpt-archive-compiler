@@ -1,4 +1,7 @@
-"""Public package interface for ChatGPT Archive Compiler."""
+"""Public package interface for ChatGPT Archive Compiler.
+
+The public ``__version__`` value is sourced from :mod:`chatgpt_archive_compiler.version`.
+"""
 
 from chatgpt_archive_compiler.compiler import (
     CompileOptions,
