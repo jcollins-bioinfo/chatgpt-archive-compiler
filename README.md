@@ -65,7 +65,7 @@ revision for provenance, but it is not the recommended large-archive workflow.
 
 ## Versioning
 
-The current development release is `0.2.0a1`. The canonical value lives in
+The current development release is `0.2.0a2`. The canonical value lives in
 `src/chatgpt_archive_compiler/version.py`, is exported as
 `chatgpt_archive_compiler.__version__`, and is read by Hatch when package metadata is built.
 Update that source once; do not duplicate the version in `pyproject.toml`.
