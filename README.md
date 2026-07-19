@@ -63,6 +63,17 @@ ledger refuses transmission before the configured cumulative API ceiling would b
 default ceiling is $5.00. `02_semantic_atlas_colab.ipynb` remains as the original full-profile
 revision for provenance, but it is not the recommended large-archive workflow.
 
+## Versioning
+
+The current development release is `0.2.0a1`. The canonical value lives in
+`src/chatgpt_archive_compiler/version.py`, is exported as
+`chatgpt_archive_compiler.__version__`, and is read by Hatch when package metadata is built.
+Update that source once; do not duplicate the version in `pyproject.toml`.
+
+While the project remains pre-1.0, substantial feature verticals advance the minor version and
+retain an alpha suffix. Compatible fixes advance the alpha serial or patch component as
+appropriate. Release notes are maintained in `CHANGELOG.md`.
+
 ## Development checks
 
 ```bash
