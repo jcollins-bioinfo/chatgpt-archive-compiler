@@ -1,7 +1,7 @@
 # ChatGPT Archive Compiler
 
-Local-first compiler for ChatGPT data exports: ingest, normalize, analyze, redact, and render
-conversation archives into book-quality artifacts.
+Local-first compiler for ChatGPT data exports: ingest, normalize, analyze, organize, redact, and
+render conversation archives into book-quality artifacts and a cross-archive semantic atlas.
 
 The current vertical slice converts an export ZIP into a loss-aware Archive IR and compiles that IR
 into self-contained HTML and optional PDF volumes:
@@ -16,8 +16,10 @@ write_archive_ir(archive, "archive.ir.json")
 compile_archive(archive, "compiled", options=CompileOptions(render_pdf=True))
 ```
 
-Real exports contain private data. The package makes no network calls, does not extract ZIP members,
-and never logs message text. Synthetic data must be used in tests and committed examples.
+Real exports contain private data. Core ingestion and compilation make no network calls, do not
+extract ZIP members, and never log message text. Enhanced semantic analysis is a separate,
+explicitly authorized API mode; a fully local semantic baseline is also available. Synthetic data
+must be used in tests and committed examples.
 
 ## Architecture
 
@@ -50,7 +52,14 @@ normalization, and keeps only source exports, diagnostics, and Archive IR output
 `notebooks/01_compile_archive_colab.ipynb` is the compact end-to-end workflow. It re-ingests the
 source export with current schema support, performs structural analysis and optional explicit
 redaction, then writes monthly HTML/PDF volumes, an index, and a checksum manifest. No additional
-operational notebook is planned unless real rendered output demonstrates a distinct QA need.
+chronological processing notebooks are planned.
+
+`notebooks/02_semantic_atlas_colab.ipynb` is the analytical workflow. It constructs bounded
+current-path conversation representations, performs resumable structured profiling and semantic
+embedding, discovers a resolution-controlled conversation graph and taxonomy, synthesizes projects and
+longitudinal themes, emits an ambiguity review queue, and renders a modern thematic atlas book.
+Enhanced analysis is an explicit opt-in API operation; preflight runs locally and reports the
+selected fields and estimated volume before any source-derived text leaves the runtime.
 
 ## Development checks
 

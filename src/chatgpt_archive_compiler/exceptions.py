@@ -77,3 +77,7 @@ class ArchiveSerializationError(ArchiveCompilerError):
 
 class ArchiveCompilationError(ArchiveCompilerError):
     """Raised when a local document artifact cannot be constructed or rendered."""
+
+
+class SemanticProviderError(ArchiveCompilerError):
+    """Raised when an external semantic provider fails without exposing source content."""
