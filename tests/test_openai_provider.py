@@ -25,7 +25,9 @@ from chatgpt_archive_compiler.semantic.models import (
     ConversationRepresentation,
     EmbeddingRecord,
     GraphSummary,
+    ProjectTimeline,
     Taxonomy,
+    TimelineEvent,
 )
 from chatgpt_archive_compiler.semantic.openai_provider import (
     OpenAIEmbeddingProvider,
@@ -102,16 +104,37 @@ class _FakeEmbeddings:
 
 
 class _FakeResponses:
-    def __init__(self, parsed: BaseException | object, usage: object | None = None) -> None:
+    def __init__(
+        self,
+        parsed: BaseException | object,
+        usage: object | None = None,
+        *,
+        status: str | None = None,
+        incomplete_reason: str | None = None,
+        output: tuple[object, ...] = (),
+    ) -> None:
         self.parsed = parsed
         self.usage = usage
+        self.status = status
+        self.incomplete_reason = incomplete_reason
+        self.output = output
         self.requests: list[dict[str, Any]] = []
 
     def parse(self, **request: Any) -> SimpleNamespace:
         self.requests.append(request)
         if isinstance(self.parsed, BaseException):
             raise self.parsed
-        return SimpleNamespace(output_parsed=self.parsed, usage=self.usage)
+        return SimpleNamespace(
+            output_parsed=self.parsed,
+            usage=self.usage,
+            status=self.status,
+            incomplete_details=(
+                SimpleNamespace(reason=self.incomplete_reason)
+                if self.incomplete_reason is not None
+                else None
+            ),
+            output=self.output,
+        )
 
 
 def test_embedding_provider_preserves_keys_and_requests_shortened_vectors() -> None:
@@ -262,7 +285,22 @@ def test_empty_structured_response_is_rejected() -> None:
         client=SimpleNamespace(responses=_FakeResponses(None))
     )
 
-    with pytest.raises(SemanticProviderError, match="empty or refused"):
+    with pytest.raises(SemanticProviderError, match="empty or unparsed"):
+        provider.analyze_conversations([_representation()])
+
+
+def test_incomplete_structured_response_reports_only_safe_reason() -> None:
+    provider = OpenAIStructuredAnalysisProvider(
+        client=SimpleNamespace(
+            responses=_FakeResponses(
+                None,
+                status="incomplete",
+                incomplete_reason="max_output_tokens",
+            )
+        )
+    )
+
+    with pytest.raises(SemanticProviderError, match=r"incomplete \(max_output_tokens\)"):
         provider.analyze_conversations([_representation()])
 
 
@@ -370,3 +408,108 @@ def test_synthesis_profiles_all_taxonomy_levels_and_preserves_temporal_evidence(
         parent.category_id,
         leaf.category_id,
     }
+
+
+def test_synthesis_reconciles_model_identifier_drift_without_discarding_analysis() -> None:
+    analysis = _analysis()
+    parent = Category(
+        category_id="domain-synthetic",
+        name="Synthetic domain",
+        description="A broad synthetic domain.",
+        level=0,
+        conversation_keys=(analysis.conversation_key,),
+        child_ids=("category-synthetic",),
+        confidence=0.9,
+    )
+    leaf = Category(
+        category_id="category-synthetic",
+        name="Synthetic category",
+        description="A focused synthetic category.",
+        parent_id=parent.category_id,
+        level=1,
+        conversation_keys=(analysis.conversation_key,),
+        confidence=0.9,
+    )
+    request = ArchiveSynthesisRequest(
+        analyses=(analysis,),
+        references=(
+            ConversationReference(
+                conversation_key=analysis.conversation_key,
+                title="Synthetic conversation",
+                created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            ),
+        ),
+        taxonomy=Taxonomy(
+            categories=(parent, leaf),
+            assignments=(
+                CategoryAssignment(
+                    conversation_key=analysis.conversation_key,
+                    primary_category_id=leaf.category_id,
+                    confidence=0.9,
+                ),
+            ),
+        ),
+        graph_summary=GraphSummary(
+            node_count=1,
+            edge_count=0,
+            category_count=1,
+            isolated_node_count=1,
+        ),
+    )
+    model_bundle = ArchiveSynthesisBundle(
+        category_profiles=(
+            CategoryProfile(
+                category_id=leaf.category_id,
+                overview="Deep model-generated leaf analysis.",
+                representative_conversation_keys=(
+                    analysis.conversation_key,
+                    "unknown-conversation",
+                ),
+            ),
+            CategoryProfile(
+                category_id=leaf.category_id,
+                overview="Duplicate model profile.",
+            ),
+            CategoryProfile(
+                category_id="unknown-category",
+                overview="Unknown model profile.",
+            ),
+        ),
+        project_timelines=(
+            ProjectTimeline(
+                project_name="Synthetic project",
+                overview="A model-generated timeline.",
+                events=(
+                    TimelineEvent(
+                        label="Grounded event",
+                        summary="A grounded milestone.",
+                        conversation_keys=(analysis.conversation_key, "unknown-conversation"),
+                    ),
+                    TimelineEvent(
+                        label="Ungrounded event",
+                        summary="An ungrounded milestone.",
+                        conversation_keys=("unknown-conversation",),
+                    ),
+                ),
+            ),
+        ),
+        synthesis=ArchiveSynthesis(executive_summary="Deep model-generated synthesis."),
+    )
+    provider = OpenAIStructuredAnalysisProvider(
+        client=SimpleNamespace(responses=_FakeResponses(model_bundle))
+    )
+
+    result = provider.synthesize_archive(request)
+
+    assert tuple(profile.category_id for profile in result.category_profiles) == (
+        parent.category_id,
+        leaf.category_id,
+    )
+    assert result.category_profiles[0].overview.startswith(parent.name)
+    assert result.category_profiles[1].overview == "Deep model-generated leaf analysis."
+    assert result.category_profiles[1].representative_conversation_keys == (
+        analysis.conversation_key,
+    )
+    assert result.project_timelines[0].events[0].conversation_keys == (analysis.conversation_key,)
+    assert len(result.project_timelines[0].events) == 1
+    assert result.synthesis.executive_summary == "Deep model-generated synthesis."
