@@ -94,7 +94,17 @@ and requires the complete scheduled plan to fit the ceiling before retrieving an
 
 Budgeted providers also disable SDK-level automatic retries. An ambiguous failure therefore retains
 one reservation; any later transmission must be initiated deliberately and pass the persistent
-ledger again.
+ledger again. A resumed ledger rejects ceiling changes by default. The notebook may explicitly
+increase—but never decrease—the ceiling only after the user enters the new exact dollar
+authorization; the existing charged history is preserved.
+
+Structured Outputs constrain response shape, but generated category and conversation identifiers can
+still drift from the supplied semantic values. Final synthesis therefore reconciles identifiers
+against the deterministic local taxonomy: unknown references are removed, duplicate profiles are
+collapsed, and an omitted category receives a conservative profile from cached analyses. The global
+model synthesis and every valid model-authored profile remain intact. Responses that are incomplete,
+content-filtered, refused, or unparsed produce stage-specific content-free diagnostics following
+OpenAI's documented response states.
 
 The [embeddings endpoint](https://developers.openai.com/api/reference/resources/embeddings/methods/create)
 limits each input to 8,192 tokens and each complete request to 300,000 tokens across all inputs. The
