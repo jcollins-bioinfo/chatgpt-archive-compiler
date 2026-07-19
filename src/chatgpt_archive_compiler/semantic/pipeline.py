@@ -15,6 +15,7 @@ from typing import TypeVar, cast
 
 from pydantic import BaseModel, JsonValue, ValidationError
 
+from chatgpt_archive_compiler.exceptions import ApiBudgetExceededError
 from chatgpt_archive_compiler.models import (
     Archive,
     ContentBlock,
@@ -420,6 +421,8 @@ def _get_embeddings(
     for batch in _batched(missing, options.embedding_batch_size):
         try:
             response = tuple(provider.embed(batch))
+        except ApiBudgetExceededError:
+            raise
         except Exception as exc:
             raise SemanticAtlasError(
                 f"Embedding provider failed safely ({type(exc).__name__})."
@@ -453,10 +456,12 @@ def _get_analyses(
     options: SemanticAtlasOptions,
     cache_directory: Path,
     progress_callback: SemanticProgressCallback | None,
+    cache_filename: str = "analyses.jsonl",
+    progress_stage: str = "conversation_profiles",
 ) -> tuple[ConversationAnalysis, ...]:
     """Load or obtain per-conversation profiles with batch-level resume."""
 
-    cache_path = cache_directory / "analyses.jsonl"
+    cache_path = cache_directory / cache_filename
     cached = _load_record_cache(cache_path, ConversationAnalysis) if options.cache_enabled else {}
     results: dict[str, ConversationAnalysis] = {}
     missing: list[ConversationRepresentation] = []
@@ -473,7 +478,7 @@ def _get_analyses(
     cached_count = len(results)
     _report_progress(
         progress_callback,
-        "conversation_profiles",
+        progress_stage,
         cached_count,
         len(representations),
         cached_count,
@@ -481,6 +486,8 @@ def _get_analyses(
     for batch in _batched(missing, options.analysis_batch_size):
         try:
             response = tuple(provider.analyze_conversations(batch))
+        except ApiBudgetExceededError:
+            raise
         except Exception as exc:
             raise SemanticAtlasError(
                 f"Analysis provider failed safely ({type(exc).__name__})."
@@ -495,7 +502,7 @@ def _get_analyses(
             _append_record_cache_batch(cache_path, cache_keys, response)
         _report_progress(
             progress_callback,
-            "conversation_profiles",
+            progress_stage,
             len(results),
             len(representations),
             cached_count,
@@ -528,16 +535,15 @@ def _category_drafts(
         dates: list[datetime] = []
         for key in keys:
             analysis = analyses_by_key[key]
-            labels.update(
-                value.strip()
-                for value in (
-                    analysis.primary_subject,
-                    *analysis.secondary_subjects,
-                    *analysis.projects,
-                    *analysis.recurring_themes,
-                )
-                if value.strip()
-            )
+            label_weight = 4 if analysis.confidence > 0.5 else 1
+            for value in (
+                analysis.primary_subject,
+                *analysis.secondary_subjects,
+                *analysis.projects,
+                *analysis.recurring_themes,
+            ):
+                if value.strip():
+                    labels[value.strip()] += label_weight
             representation = representations_by_key[key]
             date = representation.created_at or representation.updated_at
             if date is not None:
@@ -561,6 +567,59 @@ def _category_drafts(
             )
         )
     return tuple(drafts)
+
+
+def _select_refinement_keys(
+    drafts: Sequence[CategoryDraft],
+    representations: Sequence[ConversationRepresentation],
+    *,
+    per_category: int,
+    maximum: int,
+) -> tuple[str, ...]:
+    """Select central and time-spanning representatives fairly across all categories."""
+
+    if maximum <= 0:
+        return ()
+    representations_by_key = {item.conversation_key: item for item in representations}
+    candidates_by_category: dict[str, tuple[str, ...]] = {}
+    for draft in sorted(drafts, key=lambda item: item.category_id):
+        chronological = sorted(
+            draft.conversation_keys,
+            key=lambda key: (
+                (representations_by_key[key].created_at or representations_by_key[key].updated_at)
+                is None,
+                representations_by_key[key].created_at
+                or representations_by_key[key].updated_at
+                or datetime.max.replace(tzinfo=UTC),
+                key,
+            ),
+        )
+        preferred = [
+            *draft.representative_conversation_keys[:1],
+            *chronological[:1],
+            *chronological[-1:],
+            *draft.representative_conversation_keys[1:],
+            *chronological,
+        ]
+        unique: list[str] = []
+        seen: set[str] = set()
+        for key in preferred:
+            if key not in seen:
+                unique.append(key)
+                seen.add(key)
+            if len(unique) == per_category:
+                break
+        candidates_by_category[draft.category_id] = tuple(unique)
+
+    selected: list[str] = []
+    for offset in range(per_category):
+        for category_id in sorted(candidates_by_category):
+            candidates = candidates_by_category[category_id]
+            if offset < len(candidates):
+                selected.append(candidates[offset])
+                if len(selected) == maximum:
+                    return tuple(selected)
+    return tuple(selected)
 
 
 def _parent_id(name: str) -> str:
@@ -820,6 +879,8 @@ def _provider_stage(
     _report_progress(progress_callback, stage, 0, 1)
     try:
         record = call()
+    except ApiBudgetExceededError:
+        raise
     except Exception as exc:
         raise SemanticAtlasError(
             f"Structured analysis provider failed safely ({type(exc).__name__})."
@@ -861,10 +922,18 @@ def build_semantic_atlas(
     *,
     embedding_provider: EmbeddingProvider,
     analysis_provider: StructuredAnalysisProvider,
+    refinement_provider: StructuredAnalysisProvider | None = None,
+    interpretation_provider: StructuredAnalysisProvider | None = None,
     options: SemanticAtlasOptions | None = None,
     progress_callback: SemanticProgressCallback | None = None,
 ) -> SemanticAtlasResult:
-    """Build, checkpoint, validate, and export a complete semantic conversation atlas."""
+    """Build, checkpoint, validate, and export a complete semantic conversation atlas.
+
+    ``analysis_provider`` profiles every conversation and is therefore normally local for large
+    archives. ``refinement_provider`` optionally replaces only a bounded, graph-selected set of
+    representative profiles. ``interpretation_provider`` names categories and performs the single
+    archive synthesis; it defaults to the refinement provider and then to the baseline provider.
+    """
 
     active_options = options or SemanticAtlasOptions()
     destination = Path(output_directory).expanduser().resolve()
@@ -916,12 +985,35 @@ def build_semantic_atlas(
     memberships = consolidation.memberships
     _report_progress(progress_callback, "semantic_graph", 1, 1)
     drafts = _category_drafts(memberships, analyses, representations, edges)
+    if refinement_provider is not None and active_options.max_refined_conversations > 0:
+        selected_keys = _select_refinement_keys(
+            drafts,
+            representations,
+            per_category=active_options.refined_conversations_per_category,
+            maximum=active_options.max_refined_conversations,
+        )
+        representations_by_key = {item.conversation_key: item for item in representations}
+        refined = _get_analyses(
+            tuple(representations_by_key[key] for key in selected_keys),
+            refinement_provider,
+            options=active_options,
+            cache_directory=cache_directory,
+            progress_callback=progress_callback,
+            cache_filename="refined_analyses.jsonl",
+            progress_stage="representative_profiles",
+        )
+        refined_by_key = {item.conversation_key: item for item in refined}
+        analyses = tuple(refined_by_key.get(item.conversation_key, item) for item in analyses)
+        drafts = _category_drafts(memberships, analyses, representations, edges)
+    active_interpretation_provider = (
+        interpretation_provider or refinement_provider or analysis_provider
+    )
     taxonomy_request = TaxonomyInterpretationRequest(clusters=drafts, analyses=analyses)
     taxonomy_cache_key = _hash_value(
         {
             "stage": "taxonomy-v1",
-            "provider": analysis_provider.provider_name,
-            "model": analysis_provider.model_name,
+            "provider": active_interpretation_provider.provider_name,
+            "model": active_interpretation_provider.model_name,
             "request": taxonomy_request.model_dump(mode="json"),
         }
     )
@@ -930,7 +1022,7 @@ def build_semantic_atlas(
         cache_key=taxonomy_cache_key,
         model_type=TaxonomyInterpretation,
         enabled=active_options.cache_enabled,
-        call=lambda: analysis_provider.interpret_taxonomy(taxonomy_request),
+        call=lambda: active_interpretation_provider.interpret_taxonomy(taxonomy_request),
         stage="taxonomy",
         progress_callback=progress_callback,
     )
@@ -953,8 +1045,8 @@ def build_semantic_atlas(
     synthesis_cache_key = _hash_value(
         {
             "stage": "synthesis-v1",
-            "provider": analysis_provider.provider_name,
-            "model": analysis_provider.model_name,
+            "provider": active_interpretation_provider.provider_name,
+            "model": active_interpretation_provider.model_name,
             "request": synthesis_request.model_dump(mode="json"),
         }
     )
@@ -963,7 +1055,7 @@ def build_semantic_atlas(
         cache_key=synthesis_cache_key,
         model_type=ArchiveSynthesisBundle,
         enabled=active_options.cache_enabled,
-        call=lambda: analysis_provider.synthesize_archive(synthesis_request),
+        call=lambda: active_interpretation_provider.synthesize_archive(synthesis_request),
         stage="archive_synthesis",
         progress_callback=progress_callback,
     )
@@ -997,8 +1089,16 @@ def build_semantic_atlas(
         source_fingerprint=_source_fingerprint(archive, representations),
         embedding_provider=embedding_provider.provider_name,
         embedding_model=embedding_provider.model_name,
-        analysis_provider=analysis_provider.provider_name,
-        analysis_model=analysis_provider.model_name,
+        analysis_provider=(
+            f"baseline={analysis_provider.provider_name};"
+            f"refinement={refinement_provider.provider_name if refinement_provider else 'none'};"
+            f"interpretation={active_interpretation_provider.provider_name}"
+        ),
+        analysis_model=(
+            f"baseline={analysis_provider.model_name};"
+            f"refinement={refinement_provider.model_name if refinement_provider else 'none'};"
+            f"interpretation={active_interpretation_provider.model_name}"
+        ),
         options=options_json,
         estimate=estimate,
         graph_summary=summary,

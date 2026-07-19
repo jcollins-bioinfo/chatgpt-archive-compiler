@@ -54,12 +54,14 @@ source export with current schema support, performs structural analysis and opti
 redaction, then writes monthly HTML/PDF volumes, an index, and a checksum manifest. No additional
 chronological processing notebooks are planned.
 
-`notebooks/02_semantic_atlas_colab.ipynb` is the analytical workflow. It constructs bounded
-current-path conversation representations, performs resumable structured profiling and semantic
-embedding, discovers a resolution-controlled conversation graph and taxonomy, synthesizes projects and
-longitudinal themes, emits an ambiguity review queue, and renders a modern thematic atlas book.
-Enhanced analysis is an explicit opt-in API operation; preflight runs locally and reports the
-selected fields and estimated volume before any source-derived text leaves the runtime.
+`notebooks/02_semantic_atlas_budgeted_colab.ipynb` is the preferred analytical workflow. It embeds
+and locally profiles the complete archive, discovers a resolution-controlled graph, then sends only
+a bounded set of central and time-spanning representatives through structured model analysis.
+Category naming and longitudinal synthesis consume compact dossiers rather than every full chat.
+Preflight reports expected cost and a conservative scheduled reservation; a persistent request
+ledger refuses transmission before the configured cumulative API ceiling would be exceeded. The
+default ceiling is $5.00. `02_semantic_atlas_colab.ipynb` remains as the original full-profile
+revision for provenance, but it is not the recommended large-archive workflow.
 
 ## Development checks
 

@@ -7,12 +7,21 @@ from pathlib import Path
 from typing import Any
 
 NOTEBOOK_PATH = Path(__file__).resolve().parents[1] / "notebooks" / "02_semantic_atlas_colab.ipynb"
+BUDGETED_NOTEBOOK_PATH = (
+    Path(__file__).resolve().parents[1] / "notebooks" / "02_semantic_atlas_budgeted_colab.ipynb"
+)
 
 
 def _load_notebook() -> dict[str, Any]:
     """Load the checked-in notebook as JSON without requiring Jupyter at test time."""
 
     return json.loads(NOTEBOOK_PATH.read_text(encoding="utf-8"))
+
+
+def _load_budgeted_notebook() -> dict[str, Any]:
+    """Load the cost-controlled revision as JSON."""
+
+    return json.loads(BUDGETED_NOTEBOOK_PATH.read_text(encoding="utf-8"))
 
 
 def test_semantic_atlas_notebook_is_clean_and_python_cells_compile() -> None:
@@ -53,3 +62,44 @@ def test_semantic_atlas_notebook_preserves_privacy_and_reproducibility_gates() -
     assert '"cache_directory": cache_directory' not in source
     assert "store=False" in source
     assert "up to 30 days" in source
+
+
+def test_budgeted_semantic_notebook_is_clean_and_python_cells_compile() -> None:
+    """The new notebook is a clean standalone Colab artifact with valid code cells."""
+
+    notebook = _load_budgeted_notebook()
+    assert notebook["nbformat"] == 4
+    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v1"
+    for index, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] != "code":
+            continue
+        assert cell["execution_count"] is None
+        assert cell["outputs"] == []
+        compile("".join(cell["source"]), f"budgeted_semantic_cell_{index}", "exec")
+
+
+def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_gate() -> None:
+    """Static controls preserve the low-cost architecture and pre-request authorization."""
+
+    source = "\n".join("".join(cell["source"]) for cell in _load_budgeted_notebook()["cells"])
+    assert 'REPO_BRANCH = "agent/rebuild-colab-workflow"' in source
+    assert 'ANALYSIS_MODE = "budgeted"' in source
+    assert 'EMBEDDING_MODEL = "text-embedding-3-small"' in source
+    assert 'PROFILE_MODEL = "gpt-5.6-luna"' in source
+    assert 'SYNTHESIS_MODEL = "gpt-5.6-terra"' in source
+    assert "MAX_REFINED_CONVERSATIONS = 144" in source
+    assert "REFINED_CONVERSATIONS_PER_CATEGORY = 3" in source
+    assert "HARD_API_BUDGET_USD = 5.00" in source
+    assert "estimate_budgeted_semantic_cost" in source
+    assert "scheduled_plan_fits_hard_budget" in source
+    assert 'ledger_path=PREPARED_RUN["output_directory"] / "api_budget_ledger.json"' in source
+    assert "RoutedStructuredAnalysisProvider" in source
+    assert "analysis_provider=baseline_provider" in source
+    assert "refinement_provider=refinement_provider" in source
+    assert "I AUTHORIZE A MAXIMUM CONFIGURED API COST OF" in source
+    assert "PREPARE_REAL_ANALYSIS = False" in source
+    assert "RUN_REAL_ANALYSIS = False" in source
+    assert source.index("scheduled_plan_fits_hard_budget") < source.index(
+        'get_colab_secret("OPENAI_API_KEY")'
+    )
+    assert "source-derived exception text was suppressed" in source

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from chatgpt_archive_compiler.exceptions import SemanticProviderError
+from chatgpt_archive_compiler.exceptions import ApiBudgetExceededError, SemanticProviderError
+from chatgpt_archive_compiler.semantic.budget import ApiBudget, ModelTokenPrice
 from chatgpt_archive_compiler.semantic.models import (
     ArchiveSynthesis,
     ArchiveSynthesisBundle,
@@ -74,15 +77,16 @@ class _FakeEmbeddings:
 
 
 class _FakeResponses:
-    def __init__(self, parsed: BaseException | object) -> None:
+    def __init__(self, parsed: BaseException | object, usage: object | None = None) -> None:
         self.parsed = parsed
+        self.usage = usage
         self.requests: list[dict[str, Any]] = []
 
     def parse(self, **request: Any) -> SimpleNamespace:
         self.requests.append(request)
         if isinstance(self.parsed, BaseException):
             raise self.parsed
-        return SimpleNamespace(output_parsed=self.parsed)
+        return SimpleNamespace(output_parsed=self.parsed, usage=self.usage)
 
 
 def test_embedding_provider_preserves_keys_and_requests_shortened_vectors() -> None:
@@ -112,7 +116,55 @@ def test_structured_provider_uses_nonstored_responses_and_validates_keys() -> No
     assert responses.requests[0]["store"] is False
     assert responses.requests[0]["text_format"] is _AnalysisBatch
     assert responses.requests[0]["max_output_tokens"] == 32_000
-    assert "profile=high:32000" in provider.provider_name
+    assert "profile=high:8000:32000" in provider.provider_name
+
+
+def test_structured_provider_accounts_reported_usage_in_shared_budget(tmp_path: Path) -> None:
+    """A successful request replaces its conservative reservation with actual SDK usage."""
+
+    budget = ApiBudget(max_cost_usd="0.10", ledger_path=tmp_path / "budget.json")
+    price = ModelTokenPrice(input_usd_per_million=1, output_usd_per_million=6)
+    responses = _FakeResponses(
+        _AnalysisBatch(analyses=(_analysis(),)),
+        usage=SimpleNamespace(input_tokens=500, output_tokens=100),
+    )
+    provider = OpenAIStructuredAnalysisProvider(
+        client=SimpleNamespace(responses=responses),
+        profile_max_output_tokens=1_000,
+        taxonomy_max_output_tokens=1_000,
+        synthesis_max_output_tokens=1_000,
+        budget=budget,
+        token_price=price,
+    )
+
+    provider.analyze_conversations([_representation()])
+
+    snapshot = budget.snapshot()
+    assert snapshot.request_count == 1
+    assert snapshot.completed_request_count == 1
+    assert snapshot.charged_cost_usd == Decimal("0.0011")
+
+
+def test_structured_provider_stops_before_call_when_reserve_exceeds_budget(
+    tmp_path: Path,
+) -> None:
+    """The client receives no request when worst-case configured output is unaffordable."""
+
+    budget = ApiBudget(max_cost_usd="0.001", ledger_path=tmp_path / "budget.json")
+    responses = _FakeResponses(_AnalysisBatch(analyses=(_analysis(),)))
+    provider = OpenAIStructuredAnalysisProvider(
+        client=SimpleNamespace(responses=responses),
+        profile_max_output_tokens=1_000,
+        taxonomy_max_output_tokens=1_000,
+        synthesis_max_output_tokens=1_000,
+        budget=budget,
+        token_price=ModelTokenPrice(input_usd_per_million=1, output_usd_per_million=6),
+    )
+
+    with pytest.raises(ApiBudgetExceededError, match="before transmission"):
+        provider.analyze_conversations([_representation()])
+
+    assert responses.requests == []
 
 
 def test_structured_provider_suppresses_source_derived_provider_errors() -> None:

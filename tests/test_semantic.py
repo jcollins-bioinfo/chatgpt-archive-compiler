@@ -524,3 +524,49 @@ def test_pipeline_caps_leaf_categories_and_exports_consolidation_review(
     ]
     assert consolidated[0]["diagnostics"] == {"source_community_count": 2}
     assert result.taxonomy_path.is_file()
+
+
+def test_pipeline_refines_only_bounded_representatives_and_resumes_separate_caches(
+    tmp_path: Path,
+) -> None:
+    """External-quality profiles replace selected local records without cache thrashing."""
+
+    archive = _synthetic_archive()
+    baseline = _TrackingAnalysis()
+    refinement = _TrackingAnalysis()
+    options = SemanticAtlasOptions(
+        analysis_batch_size=8,
+        min_similarity=0.99,
+        max_refined_conversations=1,
+        refined_conversations_per_category=1,
+    )
+    arguments = {
+        "archive": archive,
+        "output_directory": tmp_path / "selective-atlas",
+        "embedding_provider": _OrthogonalEmbeddings(),
+        "analysis_provider": baseline,
+        "refinement_provider": refinement,
+        "interpretation_provider": refinement,
+        "options": options,
+    }
+
+    first = build_semantic_atlas(**arguments)  # type: ignore[arg-type]
+    calls = (
+        baseline.analysis_calls,
+        refinement.analysis_calls,
+        refinement.taxonomy_calls,
+        refinement.synthesis_calls,
+    )
+    second = build_semantic_atlas(**arguments)  # type: ignore[arg-type]
+
+    assert calls == (1, 1, 1, 1)
+    assert (
+        baseline.analysis_calls,
+        refinement.analysis_calls,
+        refinement.taxonomy_calls,
+        refinement.synthesis_calls,
+    ) == calls
+    assert len(first.atlas.analyses) == len(archive.conversations)
+    assert second.manifest_path.is_file()
+    assert (tmp_path / "selective-atlas/.semantic_cache/analyses.jsonl").is_file()
+    assert (tmp_path / "selective-atlas/.semantic_cache/refined_analyses.jsonl").is_file()

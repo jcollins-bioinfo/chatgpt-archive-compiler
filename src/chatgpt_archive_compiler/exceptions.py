@@ -81,3 +81,7 @@ class ArchiveCompilationError(ArchiveCompilerError):
 
 class SemanticProviderError(ArchiveCompilerError):
     """Raised when an external semantic provider fails without exposing source content."""
+
+
+class ApiBudgetExceededError(SemanticProviderError):
+    """Raised before an external request would exceed its configured API spending ceiling."""

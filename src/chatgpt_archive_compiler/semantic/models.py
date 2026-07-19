@@ -16,7 +16,7 @@ class SemanticModel(BaseModel):
 
 
 class SemanticAtlasOptions(SemanticModel):
-    """Configuration for representation, graph, cache, and review construction."""
+    """Configuration for representation, graph, selective refinement, cache, and review."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
@@ -31,6 +31,8 @@ class SemanticAtlasOptions(SemanticModel):
     min_similarity: float = Field(default=0.32, ge=-1.0, le=1.0)
     community_resolution: float = Field(default=1.0, gt=0.0, le=10.0)
     max_leaf_categories: int = Field(default=64, ge=1, le=512)
+    refined_conversations_per_category: int = Field(default=3, ge=1, le=16)
+    max_refined_conversations: int = Field(default=0, ge=0, le=4_096)
     review_confidence_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     cache_enabled: bool = True
 

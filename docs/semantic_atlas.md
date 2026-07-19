@@ -10,11 +10,12 @@ the system never forces every record into one mutually exclusive topic.
 ```text
 Archive IR
   -> bounded current-path conversation documents
-  -> structured conversation profiles
   -> semantic embeddings
+  -> transparent local profiles for every conversation
   -> nearest-neighbor graph and resolution-controlled communities
+  -> bounded central/earliest/latest representative refinement
   -> named categories, projects, and hierarchy
-  -> corpus-level synthesis and review queue
+  -> compressed corpus-level synthesis and review queue
   -> semantic atlas artifacts and thematic book
 ```
 
@@ -42,6 +43,13 @@ Embeddings supply global geometric evidence. A deterministic similarity graph su
 cross-conversation links. Structured model analysis supplies labels and interpretation. None of
 those signals is treated as ground truth in isolation.
 
+For large archives, the preferred pipeline does not purchase a generative profile for every
+conversation. Deterministic local profiles establish complete catalog coverage before graph
+discovery. Each graph category then contributes a small, fair set of central and time-spanning
+representatives for model refinement. Taxonomy and final synthesis requests receive compact
+profiles and category dossiers, so structured-model work scales with the bounded category count
+rather than total conversation count.
+
 The default synthesis ceiling is 64 leaf categories. When graph discovery produces more, community
 centroids are consolidated deterministically before model interpretation so the structured global
 passes remain bounded. Every consolidation is disclosed as `consolidated_category` in the review
@@ -68,6 +76,22 @@ logs may retain prompts and responses for up to 30 days. `store=False` prevents 
 Responses application-state retention; it does not by itself confer Zero Data Retention. The Colab
 acknowledgment states this distinction directly.
 
+## API cost boundary
+
+The budgeted notebook uses a shared persistent `ApiBudget` for embeddings, representative
+profiling, taxonomy interpretation, and final synthesis. Before each network request, the provider
+adapter tokenizes the actual payload and structured-output schema, adds a conservative input
+allowance, reserves the request's complete configured `max_output_tokens` cost, and atomically
+writes that reservation to `api_budget_ledger.json`. A request is not sent if its reservation would
+exceed the remaining configured ceiling.
+
+Reported provider usage replaces the conservative reservation after a successful response. Failed,
+interrupted, or usage-unobservable requests retain their reservation, preventing a restarted Colab
+session from silently resetting authorization. The ledger contains only stages, models, token
+counts, prices, and costs. Pricing remains explicit configuration because an application-side
+ledger cannot detect a future provider price change; the notebook records the price snapshot date
+and requires the complete scheduled plan to fit the ceiling before retrieving an API key.
+
 ## Resumability and provenance
 
 Conversation documents have stable content hashes. Expensive results are cached under the selected
@@ -75,7 +99,9 @@ run directory's `.semantic_cache` folder by the combination
 of document hash, provider, model, prompt version, and relevant options. A restarted run reuses only
 compatible complete records and checkpoints one completed provider batch per durable write. Changing
 source content or analytical policy invalidates the affected cache rather than silently mixing
-generations. Content-free progress callbacks report stage completion and cache hits during long runs.
+generations. Baseline and representative profiles use separate cache files so one cannot invalidate
+the other in a resume loop. Content-free progress callbacks report stage completion and cache hits
+during long runs.
 
 The final manifest records package and schema versions, non-secret provider configuration, source
 fingerprints, artifact hashes, counts, and completion state. It never records credentials or custom

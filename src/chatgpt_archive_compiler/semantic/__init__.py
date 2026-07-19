@@ -1,5 +1,12 @@
 """Semantic categorization, graph discovery, synthesis, caching, and export."""
 
+from chatgpt_archive_compiler.semantic.budget import (
+    ApiBudget,
+    ApiBudgetSnapshot,
+    BudgetedSemanticCostPlan,
+    ModelTokenPrice,
+    estimate_budgeted_semantic_cost,
+)
 from chatgpt_archive_compiler.semantic.errors import SemanticAtlasError
 from chatgpt_archive_compiler.semantic.graph import (
     build_similarity_graph,
@@ -52,6 +59,7 @@ from chatgpt_archive_compiler.semantic.pipeline import (
 )
 from chatgpt_archive_compiler.semantic.providers import (
     EmbeddingProvider,
+    RoutedStructuredAnalysisProvider,
     StructuredAnalysisProvider,
 )
 
@@ -59,6 +67,9 @@ __all__ = [
     "ArchiveSynthesis",
     "ArchiveSynthesisBundle",
     "ArchiveSynthesisRequest",
+    "ApiBudget",
+    "ApiBudgetSnapshot",
+    "BudgetedSemanticCostPlan",
     "Category",
     "CategoryAssignment",
     "CategoryDraft",
@@ -73,6 +84,7 @@ __all__ = [
     "GraphSummary",
     "LocalHashingEmbeddingProvider",
     "LocalHeuristicAnalysisProvider",
+    "ModelTokenPrice",
     "OpenAIEmbeddingProvider",
     "OpenAIStructuredAnalysisProvider",
     "ProjectTimeline",
@@ -80,6 +92,7 @@ __all__ = [
     "ReviewItem",
     "ReviewPriority",
     "ReviewQueue",
+    "RoutedStructuredAnalysisProvider",
     "SemanticAtlas",
     "SemanticAtlasError",
     "SemanticAtlasManifest",
@@ -97,5 +110,6 @@ __all__ = [
     "conversation_key_for",
     "discover_communities",
     "estimate_semantic_run",
+    "estimate_budgeted_semantic_cost",
     "prepare_conversation_representations",
 ]
