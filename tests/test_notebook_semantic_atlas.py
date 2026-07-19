@@ -69,7 +69,7 @@ def test_budgeted_semantic_notebook_is_clean_and_python_cells_compile() -> None:
 
     notebook = _load_budgeted_notebook()
     assert notebook["nbformat"] == 4
-    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v2"
+    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v3"
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] != "code":
             continue
@@ -93,6 +93,9 @@ def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_ga
     assert "EMBEDDING_TOKENS_PER_MINUTE = 800000" in source
     assert "SAFE_RESUME_SOURCE_COMMITS" in source
     assert "resume_migration.json" in source
+    assert "Resume-selected matching Archive IR:" in source
+    assert "Resume identity mismatch in fields:" in source
+    assert "3340adf265f6b5fa997de004fa8e04da37edb6de" in source
     assert source.count("max_retries=0") == 4
     assert "estimate_budgeted_semantic_cost" in source
     assert "scheduled_plan_fits_hard_budget" in source
