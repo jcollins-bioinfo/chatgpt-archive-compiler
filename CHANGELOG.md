@@ -5,6 +5,20 @@ while the project remains pre-1.0.
 
 ## [Unreleased]
 
+## [0.2.0a2] - 2026-07-19
+
+### Fixed
+
+- Reconcile structured synthesis category and conversation identifiers against deterministic local
+  IDs instead of discarding an otherwise valid, paid response when bounded model-reference drift
+  occurs.
+- Report content-free structured-response outcomes such as output exhaustion, content filtering,
+  refusal, and provider exception class without revealing archive text.
+- Permit an interrupted run to increase its persistent API ceiling only after a new exact budget
+  authorization, while continuing to forbid implicit changes and every decrease.
+- Preserve resume compatibility across the recovery revision and keep the budgeted Colab notebook
+  Black-formatted.
+
 ## [0.2.0a1] - 2026-07-19
 
 ### Added
