@@ -92,6 +92,10 @@ counts, prices, and costs. Pricing remains explicit configuration because an app
 ledger cannot detect a future provider price change; the notebook records the price snapshot date
 and requires the complete scheduled plan to fit the ceiling before retrieving an API key.
 
+Budgeted providers also disable SDK-level automatic retries. An ambiguous failure therefore retains
+one reservation; any later transmission must be initiated deliberately and pass the persistent
+ledger again.
+
 ## Resumability and provenance
 
 Conversation documents have stable content hashes. Expensive results are cached under the selected

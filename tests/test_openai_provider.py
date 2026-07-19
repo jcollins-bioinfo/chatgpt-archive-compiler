@@ -35,6 +35,31 @@ from chatgpt_archive_compiler.semantic.openai_provider import (
 )
 
 
+def test_budgeted_providers_disable_sdk_level_retries(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    """Every budgeted transmission must receive its own durable ledger reservation."""
+
+    configured_retries: list[int] = []
+
+    def fake_client_loader(
+        *, api_key: str | None, timeout_seconds: float, max_retries: int
+    ) -> object:
+        del api_key, timeout_seconds
+        configured_retries.append(max_retries)
+        return object()
+
+    monkeypatch.setattr(
+        "chatgpt_archive_compiler.semantic.openai_provider._load_openai_client",
+        fake_client_loader,
+    )
+    budget = ApiBudget(max_cost_usd="1", ledger_path=tmp_path / "ledger.json")
+    price = ModelTokenPrice(input_usd_per_million="1", output_usd_per_million="1")
+
+    OpenAIEmbeddingProvider(budget=budget, token_price=price, max_retries=9)
+    OpenAIStructuredAnalysisProvider(budget=budget, token_price=price, max_retries=9)
+
+    assert configured_retries == [0, 0]
+
+
 def _representation(key: str = "conversation-key-0001") -> ConversationRepresentation:
     return ConversationRepresentation(
         conversation_key=key,

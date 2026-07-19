@@ -233,10 +233,14 @@ class OpenAIEmbeddingProvider:
         self._maximum_tokens_per_item = maximum_tokens_per_item
         self._budget = budget
         self._token_price = token_price
+        # One ledger reservation must correspond to at most one transmission attempt. If a
+        # budgeted request fails ambiguously, the reservation remains charged and a deliberate
+        # resume must obtain a new reservation instead of the SDK retrying invisibly.
+        effective_max_retries = 0 if budget is not None else max_retries
         self._client = client or _load_openai_client(
             api_key=api_key,
             timeout_seconds=timeout_seconds,
-            max_retries=max_retries,
+            max_retries=effective_max_retries,
         )
 
     @property
@@ -389,10 +393,13 @@ class OpenAIStructuredAnalysisProvider:
         self._synthesis_max_output_tokens = synthesis_max_output_tokens
         self._budget = budget
         self._token_price = token_price
+        # Budgeted calls never use SDK-level automatic retries: every new transmission must pass
+        # the persistent ledger's pre-request authorization independently.
+        effective_max_retries = 0 if budget is not None else max_retries
         self._client = client or _load_openai_client(
             api_key=api_key,
             timeout_seconds=timeout_seconds,
-            max_retries=max_retries,
+            max_retries=effective_max_retries,
         )
 
     @property

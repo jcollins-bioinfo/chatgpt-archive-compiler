@@ -90,6 +90,7 @@ def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_ga
     assert "MAX_REFINED_CONVERSATIONS = 144" in source
     assert "REFINED_CONVERSATIONS_PER_CATEGORY = 3" in source
     assert "HARD_API_BUDGET_USD = 5.00" in source
+    assert source.count("max_retries=0") == 4
     assert "estimate_budgeted_semantic_cost" in source
     assert "scheduled_plan_fits_hard_budget" in source
     assert 'ledger_path=PREPARED_RUN["output_directory"] / "api_budget_ledger.json"' in source
