@@ -11,7 +11,9 @@ Notebooks demonstrate and validate package APIs; canonical implementation belong
   integrity checks while keeping canonical implementation in tested package modules.
 - `02_semantic_atlas_budgeted_colab.ipynb`: preferred semantic organization and thematic-book
   workflow. It locally profiles every conversation, externally refines only bounded category
-  representatives, and enforces a persistent pre-request API spending ceiling.
+  representatives, enforces a persistent pre-request API spending ceiling, and token-paces
+  embeddings below per-request and per-minute limits. Revision `budgeted-v2` can safely resume the
+  compatible cache produced by the two earlier budgeted commits.
 - `02_semantic_atlas_colab.ipynb`: retained first semantic-atlas revision. Its per-conversation
   external profiling is useful as implementation provenance but is not cost-practical for a large
   archive.

@@ -130,6 +130,60 @@ def test_embedding_provider_preserves_keys_and_requests_shortened_vectors() -> N
     assert "dimensions=256" in provider.provider_name
 
 
+def test_embedding_provider_splits_batches_below_aggregate_token_limit(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A large item-count batch is subdivided before it can cross the API's token ceiling."""
+
+    embeddings = _FakeEmbeddings()
+    client = SimpleNamespace(embeddings=embeddings)
+    monkeypatch.setattr(
+        "chatgpt_archive_compiler.semantic.openai_provider._estimated_tokens",
+        lambda text, *, model: 150_000,
+    )
+    provider = OpenAIEmbeddingProvider(client=client, request_batch_size=96)
+
+    records = provider.embed(
+        [_representation(f"conversation-key-{index:04d}") for index in range(3)]
+    )
+
+    assert len(records) == 3
+    assert [len(request["input"]) for request in embeddings.requests] == [1, 1, 1]
+
+
+def test_embedding_provider_paces_requests_below_configured_tpm(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Local pacing waits before transmission instead of relying on a failed API request."""
+
+    embeddings = _FakeEmbeddings()
+    clock = [0.0]
+    delays: list[float] = []
+
+    def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setattr(
+        "chatgpt_archive_compiler.semantic.openai_provider._estimated_tokens",
+        lambda text, *, model: 60_000,
+    )
+    monkeypatch.setattr(
+        "chatgpt_archive_compiler.semantic.openai_provider.time.monotonic",
+        lambda: clock[0],
+    )
+    monkeypatch.setattr(
+        "chatgpt_archive_compiler.semantic.openai_provider.time.sleep",
+        fake_sleep,
+    )
+    provider = OpenAIEmbeddingProvider(
+        client=SimpleNamespace(embeddings=embeddings),
+        request_batch_size=1,
+        tokens_per_minute=100_000,
+    )
+
+    provider.embed([_representation(f"conversation-key-{index:04d}") for index in range(3)])
+
+    assert len(embeddings.requests) == 3
+    assert delays == [60.0, 60.0]
+
+
 def test_structured_provider_uses_nonstored_responses_and_validates_keys() -> None:
     parsed = _AnalysisBatch(analyses=(_analysis(),))
     responses = _FakeResponses(parsed)

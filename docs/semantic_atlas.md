@@ -96,6 +96,12 @@ Budgeted providers also disable SDK-level automatic retries. An ambiguous failur
 one reservation; any later transmission must be initiated deliberately and pass the persistent
 ledger again.
 
+The [embeddings endpoint](https://developers.openai.com/api/reference/resources/embeddings/methods/create)
+limits each input to 8,192 tokens and each complete request to 300,000 tokens across all inputs. The
+OpenAI adapter therefore partitions item-count batches again at a 280,000-token internal ceiling.
+The budgeted notebook also applies conservative local tokens-per-minute pacing, avoiding predictable
+rate-limit failures before transmission.
+
 ## Resumability and provenance
 
 Conversation documents have stable content hashes. Expensive results are cached under the selected

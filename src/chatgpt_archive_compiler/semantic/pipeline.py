@@ -77,6 +77,19 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 SemanticProgressCallback = Callable[[str, int, int, int], None]
 
 
+def _safe_exception_type_chain(exception: BaseException, *, maximum_depth: int = 3) -> str:
+    """Return only exception class names from a bounded explicit-cause chain."""
+
+    names: list[str] = []
+    current: BaseException | None = exception
+    seen: set[int] = set()
+    while current is not None and len(names) < maximum_depth and id(current) not in seen:
+        seen.add(id(current))
+        names.append(type(current).__name__)
+        current = current.__cause__
+    return " <- ".join(names)
+
+
 def _report_progress(
     callback: SemanticProgressCallback | None,
     stage: str,
@@ -425,7 +438,7 @@ def _get_embeddings(
             raise
         except Exception as exc:
             raise SemanticAtlasError(
-                f"Embedding provider failed safely ({type(exc).__name__})."
+                f"Embedding provider failed safely ({_safe_exception_type_chain(exc)})."
             ) from exc
         expected = tuple(item.conversation_key for item in batch)
         actual = _expected_record_keys(response)
@@ -490,7 +503,7 @@ def _get_analyses(
             raise
         except Exception as exc:
             raise SemanticAtlasError(
-                f"Analysis provider failed safely ({type(exc).__name__})."
+                f"Analysis provider failed safely ({_safe_exception_type_chain(exc)})."
             ) from exc
         expected = tuple(item.conversation_key for item in batch)
         actual = _expected_record_keys(response)
@@ -883,7 +896,7 @@ def _provider_stage(
         raise
     except Exception as exc:
         raise SemanticAtlasError(
-            f"Structured analysis provider failed safely ({type(exc).__name__})."
+            f"Structured analysis provider failed safely ({_safe_exception_type_chain(exc)})."
         ) from exc
     if enabled:
         _write_stage_cache(cache_path, cache_key, record)
