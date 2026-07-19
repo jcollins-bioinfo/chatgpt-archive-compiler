@@ -31,10 +31,12 @@ order under corpus-wide limits. Node IDs and message IDs remain distinct.
 
 ## Colab bootstrap
 
-`notebooks/00_project_bootstrap_colab.ipynb` mounts Google Drive, securely clones or fast-forwards
-the selected branch into `MyDrive/ChatGPT Data Export/chatgpt-archive-compiler`, installs the
-package from that durable checkout, and exercises the public API with a branched synthetic export.
-Real-export processing is disabled by default and requires an explicit privacy acknowledgment.
+`notebooks/00_project_bootstrap_colab.ipynb` mounts Google Drive, resolves the selected branch to an
+exact commit, and creates or reuses an immutable commit-specific checkout beneath
+`MyDrive/ChatGPT Data Export/checkouts/chatgpt-archive-compiler`. It never modifies an existing
+dirty checkout. The notebook installs the package from the exact checkout and exercises numbered
+multipart ingestion with synthetic data. Real-export processing is disabled by default and requires
+an explicit privacy acknowledgment.
 
 ## Development checks
 
