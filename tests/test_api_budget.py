@@ -75,6 +75,42 @@ def test_budget_rejects_request_before_transmission_and_retains_failed_reserve(
     assert budget.snapshot().failed_or_unsettled_request_count == 1
 
 
+def test_budget_ceiling_can_only_increase_with_explicit_resume_authorization(
+    tmp_path: Path,
+) -> None:
+    """A resumed ledger expands only when the caller explicitly authorizes a higher ceiling."""
+
+    path = tmp_path / "api_budget.json"
+    original = ApiBudget(max_cost_usd="3.00", ledger_path=path)
+    request_id = original.reserve(
+        stage="synthetic",
+        model="synthetic-model",
+        price=ModelTokenPrice(input_usd_per_million=1),
+        estimated_input_tokens=100,
+    )
+    original.settle(request_id, actual_input_tokens=100)
+
+    with pytest.raises(ValueError, match="different spending ceiling"):
+        ApiBudget(max_cost_usd="5.00", ledger_path=path)
+    with pytest.raises(ValueError, match="different spending ceiling"):
+        ApiBudget(
+            max_cost_usd="2.00",
+            ledger_path=path,
+            allow_ceiling_increase=True,
+        )
+
+    resumed = ApiBudget(
+        max_cost_usd="5.00",
+        ledger_path=path,
+        allow_ceiling_increase=True,
+    )
+    reloaded = ApiBudget(max_cost_usd="5.00", ledger_path=path)
+
+    assert resumed.max_cost_usd == Decimal("5.00")
+    assert reloaded.snapshot() == resumed.snapshot()
+    assert resumed.snapshot().completed_request_count == 1
+
+
 def test_budgeted_plan_limits_model_profiles_to_category_representatives() -> None:
     """The planner prices complete local coverage but only bounded external refinement."""
 
