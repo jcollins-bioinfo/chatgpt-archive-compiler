@@ -538,7 +538,7 @@ def _current_path(
     return current_node, list(reversed(reverse_path))
 
 
-def _validate_graph(
+def _canonicalize_and_validate_graph(
     nodes_by_id: dict[str, MessageNode],
     *,
     source_path: PurePosixPath,
@@ -547,22 +547,11 @@ def _validate_graph(
     warnings: list[ArchiveWarning],
     budget: _WarningBudget,
 ) -> None:
-    """Report graph inconsistencies without mutating source-declared edges."""
+    """Build canonical child edges from parents and summarize source-edge disagreement."""
 
+    canonical_children: dict[str, list[str]] = {node_id: [] for node_id in nodes_by_id}
     for node_id in sorted(nodes_by_id):
         node = nodes_by_id[node_id]
-        if len(node.children_node_ids) != len(set(node.children_node_ids)):
-            budget.add(
-                warnings,
-                _warning(
-                    code="duplicate_child_id",
-                    message="Node declares a child identifier more than once.",
-                    source_path=source_path,
-                    location=f"{location}/{_json_pointer_part(node_id)}/children",
-                    conversation_id=conversation_id,
-                    node_id=node_id,
-                ),
-            )
         if node.parent_node_id is not None:
             parent = nodes_by_id.get(node.parent_node_id)
             if parent is None:
@@ -577,44 +566,63 @@ def _validate_graph(
                         node_id=node_id,
                     ),
                 )
-            elif node_id not in parent.children_node_ids:
-                budget.add(
-                    warnings,
-                    _warning(
-                        code="graph_edge_mismatch",
-                        message="Parent and child edge declarations disagree.",
-                        source_path=source_path,
-                        location=f"{location}/{_json_pointer_part(node_id)}/parent",
-                        conversation_id=conversation_id,
-                        node_id=node_id,
-                    ),
-                )
-        for child_id in node.children_node_ids:
+            else:
+                canonical_children[parent.node_id].append(node_id)
+
+    for node_id, child_ids in canonical_children.items():
+        nodes_by_id[node_id].children_node_ids = sorted(child_ids)
+
+    nodes_with_source_differences = 0
+    missing_source_edges = 0
+    conflicting_source_edges = 0
+    dangling_source_edges = 0
+    duplicate_source_edges = 0
+    for node_id in sorted(nodes_by_id):
+        node = nodes_by_id[node_id]
+        declared_children = node.source_children_node_ids
+        if declared_children is None:
+            continue
+
+        declared_set = set(declared_children)
+        canonical_set = set(node.children_node_ids)
+        duplicate_count = len(declared_children) - len(declared_set)
+        missing_count = len(canonical_set - declared_set)
+        conflicting_count = 0
+        dangling_count = 0
+        for child_id in declared_set - canonical_set:
             child = nodes_by_id.get(child_id)
             if child is None:
-                budget.add(
-                    warnings,
-                    _warning(
-                        code="dangling_child",
-                        message="Node refers to a child absent from the mapping.",
-                        source_path=source_path,
-                        location=f"{location}/{_json_pointer_part(node_id)}/children",
-                        conversation_id=conversation_id,
-                        node_id=node_id,
-                    ),
-                )
-            elif child.parent_node_id != node_id:
-                budget.add(
-                    warnings,
-                    _warning(
-                        code="graph_edge_mismatch",
-                        message="Parent and child edge declarations disagree.",
-                        source_path=source_path,
-                        location=f"{location}/{_json_pointer_part(node_id)}/children",
-                        conversation_id=conversation_id,
-                        node_id=node_id,
-                    ),
-                )
+                dangling_count += 1
+            else:
+                conflicting_count += 1
+        if duplicate_count or missing_count or conflicting_count or dangling_count:
+            nodes_with_source_differences += 1
+            duplicate_source_edges += duplicate_count
+            missing_source_edges += missing_count
+            conflicting_source_edges += conflicting_count
+            dangling_source_edges += dangling_count
+
+    if nodes_with_source_differences:
+        budget.add(
+            warnings,
+            _warning(
+                code="source_child_edges_disagree",
+                message=(
+                    "Source child declarations differ from canonical edges reconstructed from "
+                    "parent pointers."
+                ),
+                source_path=source_path,
+                location=location,
+                conversation_id=conversation_id,
+                context={
+                    "nodes_with_differences": nodes_with_source_differences,
+                    "missing_source_edges": missing_source_edges,
+                    "conflicting_source_edges": conflicting_source_edges,
+                    "dangling_source_edges": dangling_source_edges,
+                    "duplicate_source_edges": duplicate_source_edges,
+                },
+            ),
+        )
 
     roots = [node.node_id for node in nodes_by_id.values() if node.parent_node_id is None]
     reachable: set[str] = set()
@@ -730,10 +738,10 @@ def _conversation(
             )
 
         children_raw = raw_node.get("children")
-        children_node_ids: list[str] = []
+        source_children_node_ids: list[str] | None = None
         if isinstance(children_raw, list):
-            children_node_ids = [child for child in children_raw if isinstance(child, str)]
-            if len(children_node_ids) != len(children_raw):
+            source_children_node_ids = [child for child in children_raw if isinstance(child, str)]
+            if len(source_children_node_ids) != len(children_raw):
                 source_extras["raw_children"] = _as_json_value(children_raw)
                 budget.add(
                     warnings,
@@ -789,12 +797,12 @@ def _conversation(
         nodes_by_id[node_id] = MessageNode(
             node_id=node_id,
             parent_node_id=parent_node_id,
-            children_node_ids=children_node_ids,
+            source_children_node_ids=source_children_node_ids,
             message=normalized_message,
             source_extras=source_extras,
         )
 
-    _validate_graph(
+    _canonicalize_and_validate_graph(
         nodes_by_id,
         source_path=source_path,
         location=f"{base_location}/mapping",

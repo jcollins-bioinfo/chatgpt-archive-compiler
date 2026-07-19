@@ -38,6 +38,10 @@ dirty checkout. The notebook installs the package from the exact checkout and ex
 multipart ingestion with synthetic data. Real-export processing is disabled by default and requires
 an explicit privacy acknowledgment.
 
+`notebooks/00_project_bootstrap_colab_v2.ipynb` is the preferred follow-up workflow. It clones the
+selected branch into ephemeral Colab storage under `/content`, validates parent-only graph
+normalization, and keeps only source exports, diagnostics, and Archive IR outputs in Google Drive.
+
 ## Development checks
 
 ```bash

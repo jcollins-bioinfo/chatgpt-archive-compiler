@@ -18,6 +18,12 @@ Every mapping entry becomes a `MessageNode`, including message-less structural r
 alternate or regenerated branches. The mapping key is the authoritative `node_id`. A semantic
 `Message.message_id` remains a separate identifier.
 
+Parent pointers are authoritative for graph topology. `MessageNode.children_node_ids` is rebuilt
+deterministically from those pointers, which supports exports that omit or incompletely populate
+redundant `children` arrays. A valid source declaration is preserved separately in
+`source_children_node_ids`; `None` distinguishes a missing or malformed declaration from an
+explicitly empty list. Disagreement is summarized once per conversation rather than once per edge.
+
 `Conversation.current_path_node_ids` is derived only by following parent pointers from the declared
 `current_node_id`. Missing or invalid current-node provenance produces an empty visible path and a
 warning; the normalizer never concatenates sibling branches or guesses a transcript.

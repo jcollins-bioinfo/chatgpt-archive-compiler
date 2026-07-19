@@ -46,6 +46,66 @@ def test_mapping_order_does_not_change_normalized_graph(
     assert first == second
 
 
+def test_parent_only_graph_reconstructs_canonical_children(
+    branched_payload: list[dict[str, Any]],
+) -> None:
+    """Parent-only exports produce a complete graph without reciprocal-edge warnings."""
+
+    payload = copy.deepcopy(branched_payload)
+    for node in payload[0]["mapping"].values():
+        node.pop("children")
+
+    conversation = normalize_conversations_payload(payload, source_path=SOURCE_PATH).conversations[
+        0
+    ]
+    nodes = {node.node_id: node for node in conversation.nodes}
+
+    assert conversation.warnings == []
+    assert nodes["root"].children_node_ids == ["user-001"]
+    assert nodes["user-001"].children_node_ids == [
+        "assistant-alternate",
+        "assistant-current",
+    ]
+    assert nodes["assistant-current"].children_node_ids == []
+    assert all(node.source_children_node_ids is None for node in nodes.values())
+    assert conversation.current_path_node_ids == ["root", "user-001", "assistant-current"]
+
+
+def test_source_child_disagreement_is_aggregated_and_preserved(
+    branched_payload: list[dict[str, Any]],
+) -> None:
+    """Incomplete source child lists produce one summary while canonical edges remain complete."""
+
+    payload = copy.deepcopy(branched_payload)
+    for node in payload[0]["mapping"].values():
+        node["children"] = []
+
+    conversation = normalize_conversations_payload(payload, source_path=SOURCE_PATH).conversations[
+        0
+    ]
+    nodes = {node.node_id: node for node in conversation.nodes}
+    warnings = [
+        warning
+        for warning in conversation.warnings
+        if warning.code == "source_child_edges_disagree"
+    ]
+
+    assert len(warnings) == 1
+    assert warnings[0].context == {
+        "nodes_with_differences": 2,
+        "missing_source_edges": 3,
+        "conflicting_source_edges": 0,
+        "dangling_source_edges": 0,
+        "duplicate_source_edges": 0,
+    }
+    assert nodes["root"].children_node_ids == ["user-001"]
+    assert nodes["user-001"].children_node_ids == [
+        "assistant-alternate",
+        "assistant-current",
+    ]
+    assert all(node.source_children_node_ids == [] for node in nodes.values())
+
+
 def test_missing_current_node_never_concatenates_siblings(
     branched_payload: list[dict[str, Any]],
 ) -> None:

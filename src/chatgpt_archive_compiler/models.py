@@ -201,7 +201,11 @@ class MessageNode(BaseModel):
     """One node in the exported conversation graph.
 
     ``message`` is ``None`` for structural roots. Node identifiers and message identifiers are
-    intentionally distinct because ChatGPT exports use both namespaces.
+    intentionally distinct because ChatGPT exports use both namespaces. ``children_node_ids`` is
+    the canonical child relation reconstructed from authoritative parent pointers.
+    ``source_children_node_ids`` preserves a valid source ``children`` declaration when one was
+    present; ``None`` distinguishes an absent or malformed declaration from an explicitly empty
+    list.
     """
 
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
@@ -209,6 +213,7 @@ class MessageNode(BaseModel):
     node_id: str
     parent_node_id: str | None = None
     children_node_ids: list[str] = Field(default_factory=list)
+    source_children_node_ids: list[str] | None = None
     message: Message | None = None
     is_on_current_path: bool = False
     source_extras: dict[str, JsonValue] = Field(default_factory=dict)
