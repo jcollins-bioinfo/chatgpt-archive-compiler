@@ -64,6 +64,17 @@ def test_compile_archive_writes_year_volume_and_manifest(
     assert manifest["volumes"][0]["html_sha256"] == result.volumes[0].html_sha256
 
 
+def test_compile_archive_defaults_to_monthly_volumes(
+    branched_payload: list[dict[str, Any]], write_payload_zip, tmp_path: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """The safer default bounds each PDF layout job to one calendar month."""
+
+    archive = ingest_export_zip(write_payload_zip(branched_payload))
+    result = compile_archive(archive, tmp_path / "monthly")
+
+    assert [volume.label for volume in result.volumes] == ["2025-01"]
+
+
 def test_reasoning_is_omitted_by_default_and_can_be_included(
     branched_payload: list[dict[str, Any]], write_payload_zip, tmp_path: Path  # type: ignore[no-untyped-def]
 ) -> None:
@@ -117,3 +128,26 @@ def test_explicit_redaction_rules_apply_to_titles_and_messages(
 
     assert "Synthetic" not in html_text
     assert "[PRIVATE]" in html_text
+
+
+def test_unicode_line_and_paragraph_separators_are_normalized(
+    branched_payload: list[dict[str, Any]], write_payload_zip, tmp_path: Path  # type: ignore[no-untyped-def]
+) -> None:
+    """Unicode separators that trigger PDF-layout assertions become ordinary line breaks."""
+
+    payload = copy.deepcopy(branched_payload)
+    payload[0]["mapping"]["user-001"]["message"]["content"]["parts"] = [
+        "First line \u2028 second line \u2029 next paragraph"
+    ]
+    archive = ingest_export_zip(write_payload_zip(payload))
+    result = compile_archive(
+        archive,
+        tmp_path / "unicode-separators",
+        options=CompileOptions(volume_mode=VolumeMode.SINGLE),
+    )
+    html_text = result.volumes[0].html_path.read_text(encoding="utf-8")
+
+    assert "\u2028" not in html_text
+    assert "\u2029" not in html_text
+    assert "First line" in html_text
+    assert "next paragraph" in html_text

@@ -36,6 +36,7 @@ class VolumeMode(StrEnum):
     """How selected conversations are partitioned into output volumes."""
 
     SINGLE = "single"
+    MONTH = "month"
     YEAR = "year"
 
 
@@ -60,7 +61,7 @@ class CompileOptions(BaseModel):
     title: str = "ChatGPT Conversation Archive"
     subtitle: str | None = None
     author: str | None = None
-    volume_mode: VolumeMode = VolumeMode.YEAR
+    volume_mode: VolumeMode = VolumeMode.MONTH
     render_pdf: bool = False
     include_reasoning_summaries: bool = False
     include_system_messages: bool = False
@@ -259,7 +260,7 @@ def _visible_messages(conversation: Conversation, options: CompileOptions) -> li
 def _group_conversations(
     conversations: Sequence[Conversation], options: CompileOptions
 ) -> list[tuple[str, list[Conversation]]]:
-    """Partition selected conversations into deterministic single or annual volumes."""
+    """Partition selected conversations into deterministic single, monthly, or annual volumes."""
 
     if options.volume_mode is VolumeMode.SINGLE:
         return [("complete", list(conversations))]
@@ -267,8 +268,14 @@ def _group_conversations(
     groups: defaultdict[str, list[Conversation]] = defaultdict(list)
     for conversation in conversations:
         date = conversation.created_at or conversation.updated_at
-        groups[str(date.year) if date is not None else "undated"].append(conversation)
-    labels = sorted((label for label in groups if label != "undated"), key=int)
+        if date is None:
+            label = "undated"
+        elif options.volume_mode is VolumeMode.MONTH:
+            label = f"{date.year:04d}-{date.month:02d}"
+        else:
+            label = str(date.year)
+        groups[label].append(conversation)
+    labels = sorted(label for label in groups if label != "undated")
     if "undated" in groups:
         labels.append("undated")
     return [(label, groups[label]) for label in labels]
@@ -287,12 +294,12 @@ def _compile_redactors(options: CompileOptions) -> tuple[tuple[re.Pattern[str], 
 
 
 def _redact(text: str, redactors: Sequence[tuple[re.Pattern[str], str]]) -> str:
-    """Apply explicit redactions in user-specified order."""
+    """Apply explicit redactions and normalize Unicode separators for HTML layout engines."""
 
     redacted = text
     for pattern, replacement in redactors:
         redacted = pattern.sub(replacement, redacted)
-    return redacted
+    return redacted.replace("\u2028", "\n").replace("\u2029", "\n\n")
 
 
 def _safe_markdown(text: str, redactors: Sequence[tuple[re.Pattern[str], str]]) -> str:
@@ -485,7 +492,10 @@ def _render_pdf(html_path: Path, destination: Path) -> Path:
         HTML(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(temporary_path))
         os.replace(temporary_path, destination)
     except Exception as exc:
-        raise ArchiveCompilationError(f"Could not render PDF: {destination}") from exc
+        cause_name = type(exc).__name__
+        raise ArchiveCompilationError(
+            f"PDF rendering failed safely ({cause_name}): {destination}"
+        ) from exc
     finally:
         temporary_path.unlink(missing_ok=True)
     return destination
@@ -624,7 +634,7 @@ a { color: #175cd3; text-decoration: none; }
   margin-top: 18mm;
   color: #175cd3;
   font-size: 12pt;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -719,5 +729,5 @@ main {
 h1 { margin-top: 0; font: 700 2.2rem/1.15 Georgia, serif; }
 ul { padding: 0; list-style: none; }
 li { padding: 12px 0; border-bottom: 1px solid #e4e7ec; }
-a { color: #175cd3; font-weight: 650; text-decoration: none; }
+a { color: #175cd3; font-weight: 600; text-decoration: none; }
 """

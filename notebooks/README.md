@@ -7,7 +7,7 @@ Notebooks demonstrate and validate package APIs; canonical implementation belong
   cloned beneath `/content`, parent-only graphs are validated synthetically, and only real inputs
   and generated outputs persist in Google Drive.
 - `01_compile_archive_colab.ipynb`: compact full compiler workflow. It combines re-ingestion,
-  structural analysis, explicit redaction, document construction, annual HTML/PDF rendering, and
+  structural analysis, explicit redaction, document construction, monthly HTML/PDF rendering, and
   integrity checks while keeping canonical implementation in tested package modules.
 - `00_project_bootstrap_colab.ipynb`: retained as the earlier immutable Drive-checkout bootstrap;
   new runs should use the ephemeral workflows above.

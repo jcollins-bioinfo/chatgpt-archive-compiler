@@ -32,7 +32,7 @@ representing the declared current path separately. Numbered multipart exports ar
 incrementally in numeric order under corpus-wide limits. Node IDs and message IDs remain distinct.
 Compilation renders only declared current paths, omits reasoning and non-user-facing roles by
 default, blocks remote asset loading, supports explicit regex redactions, and splits large archives
-into annual volumes by default.
+into monthly volumes by default so each PDF layout job remains bounded.
 
 ## Colab bootstrap
 
@@ -49,7 +49,7 @@ normalization, and keeps only source exports, diagnostics, and Archive IR output
 
 `notebooks/01_compile_archive_colab.ipynb` is the compact end-to-end workflow. It re-ingests the
 source export with current schema support, performs structural analysis and optional explicit
-redaction, then writes annual HTML/PDF volumes, an index, and a checksum manifest. No additional
+redaction, then writes monthly HTML/PDF volumes, an index, and a checksum manifest. No additional
 operational notebook is planned unless real rendered output demonstrates a distinct QA need.
 
 ## Development checks
