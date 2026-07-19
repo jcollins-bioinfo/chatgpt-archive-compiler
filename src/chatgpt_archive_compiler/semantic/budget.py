@@ -212,13 +212,15 @@ class ApiBudget:
     Parameters
     ----------
     max_cost_usd
-        Maximum cumulative configured cost for this ledger. A pre-existing ledger must use the
-        same ceiling, preventing a resumed notebook from silently changing its authorization.
+        Maximum cumulative configured cost for this ledger.
     ledger_path
         Optional JSON destination. Reservations are atomically persisted before network calls.
     input_safety_factor
         Multiplier applied to estimated input tokens before authorization. Output reservations use
         the request's exact ``max_output_tokens`` value and therefore need no multiplier.
+    allow_ceiling_increase
+        Permit an existing ledger ceiling to increase explicitly. Decreases remain forbidden and
+        the default rejects every mismatch so authorization cannot change silently.
     """
 
     def __init__(
@@ -227,6 +229,7 @@ class ApiBudget:
         max_cost_usd: Decimal | float | str,
         ledger_path: str | Path | None = None,
         input_safety_factor: float = 1.20,
+        allow_ceiling_increase: bool = False,
     ) -> None:
         maximum = Decimal(str(max_cost_usd))
         if maximum <= 0:
@@ -235,6 +238,7 @@ class ApiBudget:
             raise ValueError("input_safety_factor must be finite and at least 1.0")
         self._ledger_path = Path(ledger_path).expanduser().resolve() if ledger_path else None
         self._input_safety_factor = input_safety_factor
+        self._allow_ceiling_increase = allow_ceiling_increase
         self._state = self._load_or_initialize(maximum)
 
     @property
@@ -370,9 +374,14 @@ class ApiBudget:
             )
         except (OSError, ValidationError, ValueError) as exc:
             raise ValueError("Existing API budget ledger is unreadable or invalid.") from exc
-        if state.max_cost_usd != maximum:
-            raise ValueError("Existing API budget ledger uses a different spending ceiling.")
-        return state
+        if state.max_cost_usd == maximum:
+            return state
+        if self._allow_ceiling_increase and maximum > state.max_cost_usd:
+            increased = state.model_copy(update={"max_cost_usd": maximum})
+            self._state = increased
+            self._persist()
+            return increased
+        raise ValueError("Existing API budget ledger uses a different spending ceiling.")
 
     def _entry(self, request_id: str) -> tuple[int, ApiBudgetEntry]:
         """Resolve a request ID without exposing any provider payload."""
