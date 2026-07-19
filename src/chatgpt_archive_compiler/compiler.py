@@ -481,7 +481,7 @@ def _render_pdf(html_path: Path, destination: Path) -> Path:
     """Render one local HTML file to PDF using the optional WeasyPrint dependency."""
 
     try:
-        from weasyprint import HTML  # type: ignore[import-untyped]
+        from weasyprint import HTML  # type: ignore
     except ImportError as exc:
         raise ArchiveCompilationError(
             "PDF rendering requires the optional 'pdf' dependency set."
