@@ -1,6 +1,6 @@
 # ChatGPT Archive Compiler
 
-[![CI](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml/badge.svg)](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml)
+[![CI](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A local-first, loss-aware compiler and experimental semantic-analysis pipeline for user-controlled
