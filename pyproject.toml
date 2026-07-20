@@ -5,33 +5,27 @@ build-backend = "hatchling.build"
 [project]
 name = "chatgpt-archive-compiler"
 dynamic = ["version"]
-description = "Local-first compiler for ChatGPT data exports into analyzed, redacted, book-quality archives."
+description = "Local-first, loss-aware compiler and experimental semantic pipeline for ChatGPT data exports."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "John Collins" }]
-license = { text = "License TBD before public release" }
-keywords = ["chatgpt", "data-export", "archive", "dash", "pdf", "privacy"]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["chatgpt", "data-export", "archive", "semantic-analysis", "pdf", "privacy"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Text Processing",
   "Topic :: Utilities",
 ]
 dependencies = [
   "beautifulsoup4>=4.12",
-  "dash>=2.17",
-  "dash-ag-grid>=31.0",
-  "dash-mantine-components>=0.14",
-  "duckdb>=1.0",
-  "jinja2>=3.1",
   "markdown-it-py>=3.0",
-  "mdit-py-plugins>=0.4",
-  "orjson>=3.10",
-  "plotly>=5.22",
-  "polars>=1.0",
   "pydantic>=2.7",
   "rich>=13.7",
   "typer>=0.12",
@@ -40,11 +34,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "black[jupyter]>=24.4",
+  "build>=1.2",
   "mypy>=1.10",
   "pre-commit>=3.7",
   "pytest>=8.2",
   "pytest-cov>=5.0",
   "ruff>=0.5",
+  "twine>=5.1",
   "types-beautifulsoup4>=4.12",
 ]
 notebooks = [
@@ -55,11 +51,18 @@ pdf = [
   "weasyprint>=62.0",
 ]
 semantic = [
-  "numpy>=1.26",
+  "numpy>=1.26,<2.3",
   "openai>=1.66",
+  "polars>=1.0",
   "scikit-learn>=1.4",
   "tiktoken>=0.8",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
+Repository = "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
+Issues = "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/issues"
+Changelog = "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/blob/main/CHANGELOG.md"
 
 [project.scripts]
 chatgpt-archive = "chatgpt_archive_compiler.cli:app"
