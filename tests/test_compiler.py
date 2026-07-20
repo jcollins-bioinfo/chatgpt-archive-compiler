@@ -15,6 +15,7 @@ from chatgpt_archive_compiler.compiler import (
     compile_archive,
 )
 from chatgpt_archive_compiler.ingest import ingest_export_zip
+from chatgpt_archive_compiler.version import __version__
 
 
 def test_analysis_reports_structural_counts_only(
@@ -61,6 +62,9 @@ def test_compile_archive_writes_year_volume_and_manifest(
     assert result.index_path.is_file()
     assert result.analysis_path.is_file()
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["compiler_version"] == "1.1"
+    assert manifest["package_version"] == __version__
+    assert manifest["source_archive_sha256"] == archive.source_manifest.archive_sha256
     assert manifest["volumes"][0]["html_sha256"] == result.volumes[0].html_sha256
 
 
