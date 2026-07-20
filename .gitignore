@@ -39,6 +39,8 @@ source_exports/
 normalized_exports/
 redaction_outputs/
 rendered_books/
+outputs/
+**/.semantic_cache/
 
 # ChatGPT export archives and derived artifacts
 *.zip
@@ -55,6 +57,26 @@ rendered_books/
 *.feather
 *.jsonl
 *.ndjson
+
+# Known private Archive Compiler products
+conversations.json
+conversations-*.json
+*.ir.json
+api_budget_ledger.json
+run_identity.json
+analysis.json
+compilation_manifest.json
+semantic_manifest.json
+semantic_book_manifest.json
+run_manifest.json
+taxonomy.json
+category_profiles.json
+project_timelines.json
+review_queue.json
+cross_archive_synthesis.md
+semantic_atlas.html
+semantic-atlas.html
+archive-*.html
 
 # Build/render intermediates
 *.aux
@@ -88,3 +110,4 @@ Thumbs.db
 *.p12
 *.pfx
 secrets.*
+
