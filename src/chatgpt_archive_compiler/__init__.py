@@ -31,6 +31,15 @@ from chatgpt_archive_compiler.semantic_book import (
 )
 from chatgpt_archive_compiler.serialization import read_archive_ir, write_archive_ir
 from chatgpt_archive_compiler.version import __version__
+from chatgpt_archive_compiler.workflows import (
+    LocalWorkflowManifest,
+    LocalWorkflowOptions,
+    LocalWorkflowResult,
+    RuntimeProvenance,
+    WorkflowVerification,
+    run_local_workflow,
+    verify_local_workflow,
+)
 
 __all__ = [
     "BookPaperSize",
@@ -39,15 +48,20 @@ __all__ = [
     "IngestLimits",
     "LocalHashingEmbeddingProvider",
     "LocalHeuristicAnalysisProvider",
+    "LocalWorkflowManifest",
+    "LocalWorkflowOptions",
+    "LocalWorkflowResult",
     "ModelTokenPrice",
     "OpenAIEmbeddingProvider",
     "OpenAIStructuredAnalysisProvider",
     "RedactionRule",
     "RoutedStructuredAnalysisProvider",
+    "RuntimeProvenance",
     "SchemaMode",
     "SemanticAtlasOptions",
     "SemanticBookOptions",
     "VolumeMode",
+    "WorkflowVerification",
     "__version__",
     "analyze_archive",
     "build_semantic_atlas",
@@ -57,5 +71,7 @@ __all__ = [
     "estimate_budgeted_semantic_cost",
     "ingest_export_zip",
     "read_archive_ir",
+    "run_local_workflow",
+    "verify_local_workflow",
     "write_archive_ir",
 ]

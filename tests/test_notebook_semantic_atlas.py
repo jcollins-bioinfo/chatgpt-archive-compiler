@@ -41,13 +41,15 @@ def test_semantic_atlas_notebook_preserves_privacy_and_reproducibility_gates() -
     """Keep real-data, external-processing, and ephemeral-checkout safeguards visible."""
 
     source = "\n".join("".join(cell["source"]) for cell in _load_notebook()["cells"])
-    assert 'REPO_BRANCH = "agent/rebuild-colab-workflow"' in source
+    assert 'REPO_BRANCH = "main"' in source
     assert "PREPARE_REAL_ANALYSIS = False" in source
     assert "RUN_REAL_ANALYSIS = False" in source
-    assert 'get_colab_secret("GITHUB_TOKEN")' in source
+    assert "get_optional_github_token" in source
     assert 'get_colab_secret("OPENAI_API_KEY")' in source
     assert 'dir="/content"' in source
-    assert 'f"{REPO_DIR}[notebooks,pdf,semantic]"' in source
+    assert '"uv==0.11.28"' in source
+    assert '"--frozen"' in source
+    assert '"--no-emit-project"' in source
     assert "source-derived exception text was suppressed" in source
     assert "estimate_semantic_run" in source
     assert "LocalHashingEmbeddingProvider" in source
@@ -69,7 +71,7 @@ def test_budgeted_semantic_notebook_is_clean_and_python_cells_compile() -> None:
 
     notebook = _load_budgeted_notebook()
     assert notebook["nbformat"] == 4
-    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v4"
+    assert notebook["metadata"]["semantic_atlas_revision"] == "budgeted-v5"
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] != "code":
             continue
@@ -82,7 +84,7 @@ def test_budgeted_semantic_notebook_enforces_selective_analysis_and_hard_cost_ga
     """Static controls preserve the low-cost architecture and pre-request authorization."""
 
     source = "\n".join("".join(cell["source"]) for cell in _load_budgeted_notebook()["cells"])
-    assert 'REPO_BRANCH = "agent/rebuild-colab-workflow"' in source
+    assert 'REPO_BRANCH = "main"' in source
     assert 'ANALYSIS_MODE = "budgeted"' in source
     assert 'EMBEDDING_MODEL = "text-embedding-3-small"' in source
     assert 'PROFILE_MODEL = "gpt-5.6-luna"' in source

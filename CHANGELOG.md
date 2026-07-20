@@ -5,6 +5,27 @@ while the project remains pre-1.0.
 
 ## [Unreleased]
 
+## [0.3.0a1] - 2026-07-20
+
+### Added
+
+- Reproducible local end-to-end workflow orchestration with a content-free SHA-256 artifact manifest and verification command.
+- Complete CLI commands for ingestion, compilation, deterministic local semantic analysis, end-to-end execution, and integrity verification.
+- Public release documentation covering AI engineering, reproducibility boundaries, evaluation status, security, citation, and licensing.
+- A deterministic synthetic export generator and one-command demonstration path.
+
+### Changed
+
+- Reposition the semantic book as an experimental analytical draft after its first large real-world run did not meet the operator's quality bar.
+- Reduce the default dependency surface and use the committed lockfile in CI.
+- Make supported Colab workflows resolve `main` anonymously by default while retaining optional authentication for private forks.
+- Record the package version and source archive digest in chronological compilation manifests.
+
+### Security
+
+- Expand private-artifact ignore rules and document the sensitivity of source exports, caches, ledgers, semantic outputs, and rendered books.
+
+
 ## [0.2.0a2] - 2026-07-19
 
 ### Fixed
@@ -45,3 +66,4 @@ while the project remains pre-1.0.
 - Initial loss-aware ChatGPT export ingestion, Archive IR serialization, structural diagnostics,
   redaction, and chronological HTML/PDF compilation.
 - Initial Colab bootstrap and compiler workflows.
+

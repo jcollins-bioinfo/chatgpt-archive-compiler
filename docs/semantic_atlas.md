@@ -39,6 +39,10 @@ Each enhanced conversation profile can describe:
   resolution; and
 - assignment confidence and ambiguity notes.
 
+Confidence values are provider-self-reported or heuristic/composite review signals, not calibrated
+probabilities. Conversation references make claims traceable; they do not establish factual support
+without human comparison to the source.
+
 Embeddings supply global geometric evidence. A deterministic similarity graph supplies explicit
 cross-conversation links. Structured model analysis supplies labels and interpretation. None of
 those signals is treated as ground truth in isolation.
@@ -92,6 +96,10 @@ counts, prices, and costs. Pricing remains explicit configuration because an app
 ledger cannot detect a future provider price change; the notebook records the price snapshot date
 and requires the complete scheduled plan to fit the ceiling before retrieving an API key.
 
+The ledger uses atomic replacement but no interprocess lock. Exactly one process may write a given
+ledger/output directory at a time. Its ceiling uses configured price assumptions and is not a
+provider billing guarantee.
+
 Budgeted providers also disable SDK-level automatic retries. An ambiguous failure therefore retains
 one reservation; any later transmission must be initiated deliberately and pass the persistent
 ledger again. A resumed ledger rejects ceiling changes by default. The notebook may explicitly
@@ -127,6 +135,17 @@ The final manifest records package and schema versions, non-secret provider conf
 fingerprints, artifact hashes, counts, and completion state. It never records credentials or custom
 redaction expressions.
 
+## Observed quality boundary
+
+The first large private run completed operationally but did not meet the operator's semantic or
+editorial quality bar. The preferred cost-controlled design profiles most chats with a shallow local
+synopsis, caps external refinement at 144 conversations by default, samples category dossiers for
+global passes, and truncates bounded representations. These controls contain cost but can miss
+long-range context, subtle project continuity, and important details outside excerpts.
+
+Engineering validation therefore must not be presented as semantic validation. See
+[EVALUATION.md](EVALUATION.md) for the required benchmark and promotion gate.
+
 ## Human review
 
 The atlas is a proposed organization, not an irreversible rewrite. Low-confidence profiles and
@@ -146,3 +165,4 @@ rendering; PDF is a derived artifact produced locally with WeasyPrint. Every con
 its category directory, while global and per-category profile budgets plus project/event limits keep
 the default PDF selective and bounded. Any omitted project material remains available in the
 structured atlas artifacts and is disclosed in the book.
+

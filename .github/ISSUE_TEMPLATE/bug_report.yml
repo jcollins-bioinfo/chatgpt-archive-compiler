@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem using synthetic or redacted information only.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach a real export, Archive IR, cache, ledger, semantic artifact, screenshot,
+        traceback containing source text, or rendered book. Use the synthetic demo when possible.
+        Security vulnerabilities belong in a private security advisory.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Describe content-free symptoms, stage names, exception classes, and counts.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Provide the smallest synthetic fixture or command sequence that reproduces it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version and commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python and operating system
+    validations:
+      required: true
+

@@ -8,34 +8,76 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
+    env:
+      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install package
+
+      - name: Install pinned environment
         run: |
-          python -m pip install -U pip
-          python -m pip install -e '.[dev]'
+          python -m pip install "uv==0.11.28"
+          uv lock --check
+          uv sync --frozen --all-extras
+
       - name: Check formatting
-        run: black --check .
+        run: uv run black --check .
+
       - name: Run lint
-        run: ruff check .
+        run: uv run ruff check .
+
+      - name: Scan release tree for private artifacts and literal credentials
+        run: uv run python scripts/check_release_tree.py
+
       - name: Run strict type checking
-        run: mypy src/chatgpt_archive_compiler
+        run: uv run mypy src/chatgpt_archive_compiler
+
       - name: Validate notebook JSON
         run: |
           for notebook in notebooks/*.ipynb; do
-            python -m json.tool "$notebook" > /dev/null
+            uv run python -m json.tool "$notebook" > /dev/null
           done
-      - name: Run tests
-        run: pytest
+
+      - name: Run test suite
+        run: uv run pytest --cov=chatgpt_archive_compiler --cov-report=term-missing
+
+      - name: Run deterministic synthetic workflow
+        run: |
+          uv run python examples/make_synthetic_export.py /tmp/synthetic-export.zip
+          uv run chatgpt-archive run-local /tmp/synthetic-export.zip /tmp/archive-demo
+          uv run chatgpt-archive verify /tmp/archive-demo
+          uv run chatgpt-archive compile /tmp/archive-demo/archive.ir.json /tmp/archive-pdf-smoke --pdf --volume-mode single
+
+      - name: Build and inspect distributions
+        if: matrix.python-version == '3.13'
+        run: |
+          uv build
+          uv run twine check dist/*
+
+      - name: Smoke-test wheel in a clean environment
+        if: matrix.python-version == '3.13'
+        run: |
+          python -m venv /tmp/wheel-smoke
+          /tmp/wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/wheel-smoke/bin/chatgpt-archive --version
