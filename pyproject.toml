@@ -32,6 +32,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+app = [
+  "dash>=2.17",
+]
 dev = [
   "black[jupyter]>=24.4",
   "build>=1.2",
