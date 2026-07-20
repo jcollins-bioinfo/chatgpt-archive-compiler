@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "ChatGPT Archive Compiler"
+type: software
+authors:
+  - family-names: Collins
+    given-names: John
+version: 0.3.0a1
+date-released: 2026-07-20
+license: MIT
+repository-code: "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
+url: "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
+abstract: >-
+  A local-first, loss-aware compiler and experimental hybrid semantic-analysis
+  pipeline for user-controlled ChatGPT data exports.
+keywords:
+  - ChatGPT
+  - data export
+  - archive
+  - semantic analysis
+  - reproducible research software
