@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import html
+import importlib
 import json
 import os
 import re
 import tempfile
 from collections import Counter, defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Protocol, TextIO, cast
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
@@ -30,6 +31,7 @@ from chatgpt_archive_compiler.models import (
     Message,
     Role,
 )
+from chatgpt_archive_compiler.version import __version__
 
 
 class VolumeMode(StrEnum):
@@ -113,6 +115,26 @@ class CompilationResult(BaseModel):
     manifest_path: Path
     selected_conversation_count: int = Field(ge=0)
     volumes: tuple[CompiledVolume, ...]
+
+
+class _PDFDocument(Protocol):
+    """Structural type for the optional WeasyPrint document surface."""
+
+    def write_pdf(self, target: str) -> object:
+        """Write the rendered PDF to ``target``."""
+
+
+class _HTMLFactory(Protocol):
+    """Structural type for restricted local WeasyPrint construction."""
+
+    def __call__(
+        self,
+        *,
+        filename: str,
+        base_url: str,
+        url_fetcher: Callable[..., object],
+    ) -> _PDFDocument:
+        """Construct one document with a caller-supplied subsidiary-resource policy."""
 
 
 _MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True})
@@ -477,11 +499,19 @@ def _write_index_html(
     return destination
 
 
+def _offline_url_fetcher(url: str, *args: object, **kwargs: object) -> object:
+    """Reject every subsidiary URL load during chronological PDF generation."""
+
+    del args, kwargs
+    scheme = urlsplit(url).scheme.casefold() or "local"
+    raise ArchiveCompilationError(f"Chronological PDF blocked a {scheme!r} asset request.")
+
+
 def _render_pdf(html_path: Path, destination: Path) -> Path:
-    """Render one local HTML file to PDF using the optional WeasyPrint dependency."""
+    """Render local HTML to PDF with every subsidiary-resource request disabled."""
 
     try:
-        from weasyprint import HTML  # type: ignore
+        weasyprint = importlib.import_module("weasyprint")
     except ImportError as exc:
         raise ArchiveCompilationError(
             "PDF rendering requires the optional 'pdf' dependency set."
@@ -489,7 +519,12 @@ def _render_pdf(html_path: Path, destination: Path) -> Path:
 
     temporary_path = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
     try:
-        HTML(filename=str(html_path), base_url=str(html_path.parent)).write_pdf(str(temporary_path))
+        html_factory = cast(_HTMLFactory, weasyprint.HTML)
+        html_factory(
+            filename=str(html_path),
+            base_url=str(html_path.parent),
+            url_fetcher=_offline_url_fetcher,
+        ).write_pdf(str(temporary_path))
         os.replace(temporary_path, destination)
     except Exception as exc:
         cause_name = type(exc).__name__
@@ -569,8 +604,10 @@ def compile_archive(
     )
     _write_json(
         {
-            "compiler_version": "1.0",
+            "compiler_version": "1.1",
+            "package_version": __version__,
             "archive_version": archive.archive_version,
+            "source_archive_sha256": archive.source_manifest.archive_sha256,
             "selected_conversation_count": len(selected),
             "volume_mode": active_options.volume_mode.value,
             "reasoning_summaries_included": active_options.include_reasoning_summaries,
