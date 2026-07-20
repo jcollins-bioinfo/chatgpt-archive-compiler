@@ -1,20 +1,25 @@
 # ChatGPT Archive Compiler
 
-Local-first compiler for ChatGPT data exports: ingest, normalize, analyze, redact, and render
-conversation archives into book-quality artifacts.
+Local-first compiler for ChatGPT data exports: ingest, normalize, analyze, organize, redact, and
+render conversation archives into book-quality artifacts and a cross-archive semantic atlas.
 
-The first functional vertical slice converts an export ZIP into a loss-aware, versioned Archive IR:
+The current vertical slice converts an export ZIP into a loss-aware Archive IR and compiles that IR
+into self-contained HTML and optional PDF volumes:
 
 ```python
 from chatgpt_archive_compiler.ingest import ingest_export_zip
+from chatgpt_archive_compiler.compiler import CompileOptions, compile_archive
 from chatgpt_archive_compiler.serialization import write_archive_ir
 
 archive = ingest_export_zip("chatgpt-export.zip")
 write_archive_ir(archive, "archive.ir.json")
+compile_archive(archive, "compiled", options=CompileOptions(render_pdf=True))
 ```
 
-Real exports contain private data. The package makes no network calls, does not extract ZIP members,
-and never logs message text. Synthetic data must be used in tests and committed examples.
+Real exports contain private data. Core ingestion and compilation make no network calls, do not
+extract ZIP members, and never log message text. Enhanced semantic analysis is a separate,
+explicitly authorized API mode; a fully local semantic baseline is also available. Synthetic data
+must be used in tests and committed examples.
 
 ## Architecture
 
@@ -24,17 +29,50 @@ The Dash application and notebooks are interfaces over the package, not owners o
 ZIP export -> source manifest -> Archive IR -> analysis IR -> document IR -> renderer(s)
 ```
 
-The first functional slice is deliberately limited to safe ingestion and loss-aware normalization.
-It preserves every conversation mapping node and alternate/regenerated branch while representing the
-declared current path separately. Numbered multipart exports are ingested incrementally in numeric
-order under corpus-wide limits. Node IDs and message IDs remain distinct.
+Safe ingestion preserves every conversation mapping node and alternate/regenerated branch while
+representing the declared current path separately. Numbered multipart exports are ingested
+incrementally in numeric order under corpus-wide limits. Node IDs and message IDs remain distinct.
+Compilation renders only declared current paths, omits reasoning and non-user-facing roles by
+default, blocks remote asset loading, supports explicit regex redactions, and splits large archives
+into monthly volumes by default so each PDF layout job remains bounded.
 
 ## Colab bootstrap
 
-`notebooks/00_project_bootstrap_colab.ipynb` mounts Google Drive, securely clones or fast-forwards
-the selected branch into `MyDrive/ChatGPT Data Export/chatgpt-archive-compiler`, installs the
-package from that durable checkout, and exercises the public API with a branched synthetic export.
-Real-export processing is disabled by default and requires an explicit privacy acknowledgment.
+`notebooks/00_project_bootstrap_colab.ipynb` mounts Google Drive, resolves the selected branch to an
+exact commit, and creates or reuses an immutable commit-specific checkout beneath
+`MyDrive/ChatGPT Data Export/checkouts/chatgpt-archive-compiler`. It never modifies an existing
+dirty checkout. The notebook installs the package from the exact checkout and exercises numbered
+multipart ingestion with synthetic data. Real-export processing is disabled by default and requires
+an explicit privacy acknowledgment.
+
+`notebooks/00_project_bootstrap_colab_v2.ipynb` is the preferred follow-up workflow. It clones the
+selected branch into ephemeral Colab storage under `/content`, validates parent-only graph
+normalization, and keeps only source exports, diagnostics, and Archive IR outputs in Google Drive.
+
+`notebooks/01_compile_archive_colab.ipynb` is the compact end-to-end workflow. It re-ingests the
+source export with current schema support, performs structural analysis and optional explicit
+redaction, then writes monthly HTML/PDF volumes, an index, and a checksum manifest. No additional
+chronological processing notebooks are planned.
+
+`notebooks/02_semantic_atlas_budgeted_colab.ipynb` is the preferred analytical workflow. It embeds
+and locally profiles the complete archive, discovers a resolution-controlled graph, then sends only
+a bounded set of central and time-spanning representatives through structured model analysis.
+Category naming and longitudinal synthesis consume compact dossiers rather than every full chat.
+Preflight reports expected cost and a conservative scheduled reservation; a persistent request
+ledger refuses transmission before the configured cumulative API ceiling would be exceeded. The
+default ceiling is $5.00. `02_semantic_atlas_colab.ipynb` remains as the original full-profile
+revision for provenance, but it is not the recommended large-archive workflow.
+
+## Versioning
+
+The current development release is `0.2.0a2`. The canonical value lives in
+`src/chatgpt_archive_compiler/version.py`, is exported as
+`chatgpt_archive_compiler.__version__`, and is read by Hatch when package metadata is built.
+Update that source once; do not duplicate the version in `pyproject.toml`.
+
+While the project remains pre-1.0, substantial feature verticals advance the minor version and
+retain an alpha suffix. Compatible fixes advance the alpha serial or patch component as
+appropriate. Release notes are maintained in `CHANGELOG.md`.
 
 ## Development checks
 

@@ -46,6 +46,66 @@ def test_mapping_order_does_not_change_normalized_graph(
     assert first == second
 
 
+def test_parent_only_graph_reconstructs_canonical_children(
+    branched_payload: list[dict[str, Any]],
+) -> None:
+    """Parent-only exports produce a complete graph without reciprocal-edge warnings."""
+
+    payload = copy.deepcopy(branched_payload)
+    for node in payload[0]["mapping"].values():
+        node.pop("children")
+
+    conversation = normalize_conversations_payload(payload, source_path=SOURCE_PATH).conversations[
+        0
+    ]
+    nodes = {node.node_id: node for node in conversation.nodes}
+
+    assert conversation.warnings == []
+    assert nodes["root"].children_node_ids == ["user-001"]
+    assert nodes["user-001"].children_node_ids == [
+        "assistant-alternate",
+        "assistant-current",
+    ]
+    assert nodes["assistant-current"].children_node_ids == []
+    assert all(node.source_children_node_ids is None for node in nodes.values())
+    assert conversation.current_path_node_ids == ["root", "user-001", "assistant-current"]
+
+
+def test_source_child_disagreement_is_aggregated_and_preserved(
+    branched_payload: list[dict[str, Any]],
+) -> None:
+    """Incomplete source child lists produce one summary while canonical edges remain complete."""
+
+    payload = copy.deepcopy(branched_payload)
+    for node in payload[0]["mapping"].values():
+        node["children"] = []
+
+    conversation = normalize_conversations_payload(payload, source_path=SOURCE_PATH).conversations[
+        0
+    ]
+    nodes = {node.node_id: node for node in conversation.nodes}
+    warnings = [
+        warning
+        for warning in conversation.warnings
+        if warning.code == "source_child_edges_disagree"
+    ]
+
+    assert len(warnings) == 1
+    assert warnings[0].context == {
+        "nodes_with_differences": 2,
+        "missing_source_edges": 3,
+        "conflicting_source_edges": 0,
+        "dangling_source_edges": 0,
+        "duplicate_source_edges": 0,
+    }
+    assert nodes["root"].children_node_ids == ["user-001"]
+    assert nodes["user-001"].children_node_ids == [
+        "assistant-alternate",
+        "assistant-current",
+    ]
+    assert all(node.source_children_node_ids == [] for node in nodes.values())
+
+
 def test_missing_current_node_never_concatenates_siblings(
     branched_payload: list[dict[str, Any]],
 ) -> None:
@@ -94,6 +154,48 @@ def test_string_parts_are_not_split_into_characters(
     assert len(node.message.content) == 1
     assert node.message.content[0].type is ContentBlockType.UNKNOWN
     assert "invalid_content_parts" in {warning.code for warning in conversation.warnings}
+
+
+@pytest.mark.parametrize(
+    ("source_type", "content", "expected_type", "expected_text"),
+    [
+        (
+            "thoughts",
+            {"content_type": "thoughts", "thoughts": [{"summary": "Working summary"}]},
+            ContentBlockType.THINKING_TRACE,
+            "Working summary",
+        ),
+        (
+            "reasoning_recap",
+            {"content_type": "reasoning_recap", "content": "Reasoning recap"},
+            ContentBlockType.REASONING_SUMMARY,
+            "Reasoning recap",
+        ),
+    ],
+)
+def test_reasoning_content_is_classified_without_unknown_warning(
+    branched_payload: list[dict[str, Any]],
+    source_type: str,
+    content: dict[str, Any],
+    expected_type: ContentBlockType,
+    expected_text: str,
+) -> None:
+    """Known reasoning UI payloads remain distinct from final assistant responses."""
+
+    payload = copy.deepcopy(branched_payload)
+    message = payload[0]["mapping"]["assistant-current"]["message"]
+    message["content"] = content
+    conversation = normalize_conversations_payload(payload, source_path=SOURCE_PATH).conversations[
+        0
+    ]
+    node = next(node for node in conversation.nodes if node.node_id == "assistant-current")
+
+    assert node.message is not None
+    assert node.message.content[0].type is expected_type
+    assert node.message.content[0].text == expected_text
+    assert node.message.content[0].source_content_type == source_type
+    assert node.message.content[0].metadata["raw_content"] == content
+    assert "unknown_content_type" not in {warning.code for warning in conversation.warnings}
 
 
 @pytest.mark.parametrize("bad_value", ["scalar", 7, True, ["not", "an", "object"]])

@@ -3,9 +3,25 @@
 Notebooks demonstrate and validate package APIs; canonical implementation belongs under
 `src/chatgpt_archive_compiler/`.
 
-- `00_project_bootstrap_colab.ipynb`: durable private-repository clone in Google Drive plus a
-  synthetic ZIP → Archive IR validation.
-- Later notebooks will address corpus analysis, redaction, document construction, and rendering.
+- `00_project_bootstrap_colab_v2.ipynb`: ingestion/diagnostic workflow. Repository code is
+  cloned beneath `/content`, parent-only graphs are validated synthetically, and only real inputs
+  and generated outputs persist in Google Drive.
+- `01_compile_archive_colab.ipynb`: compact full compiler workflow. It combines re-ingestion,
+  structural analysis, explicit redaction, document construction, monthly HTML/PDF rendering, and
+  integrity checks while keeping canonical implementation in tested package modules.
+- `02_semantic_atlas_budgeted_colab.ipynb`: preferred semantic organization and thematic-book
+  workflow. It locally profiles every conversation, externally refines only bounded category
+  representatives, enforces a persistent pre-request API spending ceiling, and token-paces
+  embeddings below per-request and per-minute limits. Revision `budgeted-v3` resolves the original Archive IR by checksum before safely resuming
+  compatible caches from earlier budgeted commits.
+- `02_semantic_atlas_colab.ipynb`: retained first semantic-atlas revision. Its per-conversation
+  external profiling is useful as implementation provenance but is not cost-practical for a large
+  archive.
+- `00_project_bootstrap_colab.ipynb`: retained as the earlier immutable Drive-checkout bootstrap;
+  new runs should use the ephemeral workflows above.
+
+These three workflow stages cover the intended operational pipeline. A separate visual-QA
+notebook will be added only if review of real rendered volumes proves it necessary.
 
 Rules:
 
@@ -13,4 +29,3 @@ Rules:
 - never commit real exports or derived private artifacts;
 - keep real-data cells disabled unless deliberately activated;
 - promote reusable logic into typed, tested package modules.
-

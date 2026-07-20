@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chatgpt-archive-compiler"
-version = "0.1.0a1"
+dynamic = ["version"]
 description = "Local-first compiler for ChatGPT data exports into analyzed, redacted, book-quality archives."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -54,9 +54,18 @@ notebooks = [
 pdf = [
   "weasyprint>=62.0",
 ]
+semantic = [
+  "numpy>=1.26",
+  "openai>=1.66",
+  "scikit-learn>=1.4",
+  "tiktoken>=0.8",
+]
 
 [project.scripts]
 chatgpt-archive = "chatgpt_archive_compiler.cli:app"
+
+[tool.hatch.version]
+path = "src/chatgpt_archive_compiler/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/chatgpt_archive_compiler"]
@@ -82,3 +91,7 @@ ignore = []
 python_version = "3.11"
 strict = true
 packages = ["chatgpt_archive_compiler"]
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"

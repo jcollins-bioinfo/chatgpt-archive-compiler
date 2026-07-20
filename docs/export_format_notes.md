@@ -18,3 +18,14 @@ paths, symlinks, encryption, excessive archive/member sizes, and suspicious comp
 before any member is decompressed. Per-member and combined selected-JSON sizes are enforced again
 while streaming. Conversation, graph-node, duplicate-ID, and warning limits are shared across all
 multipart members.
+
+Recent multipart exports may provide complete parent pointers while omitting or incompletely
+populating redundant child lists. Normalization therefore reconstructs canonical child edges from
+parent pointers and retains valid source child declarations as provenance. Differences between the
+two representations are reported as one aggregate `source_child_edges_disagree` warning per
+conversation; absent child declarations are accepted without warning.
+
+Observed `thoughts` and `reasoning_recap` content is treated as ChatGPT reasoning-interface data,
+not as ordinary final-answer text. Both shapes are classified without an unknown-content warning,
+kept losslessly in Archive IR, and omitted by the renderer unless the caller deliberately requests
+reasoning summaries. The labels do not imply that an export contains raw private chain-of-thought.
