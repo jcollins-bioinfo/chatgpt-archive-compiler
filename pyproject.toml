@@ -51,7 +51,7 @@ pdf = [
   "weasyprint>=62.0",
 ]
 semantic = [
-  "numpy>=1.26,<2.3",
+  "numpy>=2.4.6,<2.5",
   "openai>=1.66",
   "polars>=1.0",
   "scikit-learn>=1.4",
