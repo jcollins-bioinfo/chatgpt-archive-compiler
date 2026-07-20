@@ -67,7 +67,7 @@ jobs:
           uv run python examples/make_synthetic_export.py /tmp/synthetic-export.zip
           uv run chatgpt-archive run-local /tmp/synthetic-export.zip /tmp/archive-demo
           uv run chatgpt-archive verify /tmp/archive-demo
-          uv run chatgpt-archive compile             /tmp/archive-demo/archive.ir.json             /tmp/archive-pdf-smoke             --pdf             --volume-mode single
+          uv run chatgpt-archive compile /tmp/archive-demo/archive.ir.json /tmp/archive-pdf-smoke --pdf --volume-mode single
 
       - name: Build and inspect distributions
         if: matrix.python-version == '3.13'
