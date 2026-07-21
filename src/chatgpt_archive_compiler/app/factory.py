@@ -11,12 +11,20 @@ from dash import Dash, Input, Output, State, dcc, html, no_update
 
 from chatgpt_archive_compiler.app.downloads import make_download_payload
 from chatgpt_archive_compiler.app.jobs import JobRegistry, JobStatus
-from chatgpt_archive_compiler.app.service import STAGES, compile_for_app, preflight_archive
+from chatgpt_archive_compiler.app.service import (
+    STAGES,
+    compile_for_app,
+    preflight_archive,
+)
 from chatgpt_archive_compiler.app.state import SessionStore
-from chatgpt_archive_compiler.app.visualizations import build_figures, load_dashboard_data
+from chatgpt_archive_compiler.app.visualizations import (
+    build_figures,
+    load_dashboard_data,
+)
 from chatgpt_archive_compiler.version import __version__
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
 
 def _aria_props(**attributes: str) -> dict[str, Any]:
     """Convert Python-safe ARIA names into Dash HTML attribute names.
@@ -24,10 +32,8 @@ def _aria_props(**attributes: str) -> dict[str, Any]:
     Returning values as ``Any`` confines the typing escape hatch to Dash's
     dynamically generated support for hyphenated ``aria-*`` properties.
     """
-    return {
-        name.replace("_", "-"): value
-        for name, value in attributes.items()
-    }
+    return {name.replace("_", "-"): value for name, value in attributes.items()}
+
 
 def _layout() -> html.Main:
     return html.Main(
@@ -37,7 +43,10 @@ def _layout() -> html.Main:
             dcc.Interval(id="job-poll", interval=750, disabled=True),
             html.Header(
                 [
-                    html.P("LOCAL-FIRST · EVIDENCE-LINKED · VERIFIABLE", className="eyebrow"),
+                    html.P(
+                        "LOCAL-FIRST · EVIDENCE-LINKED · VERIFIABLE",
+                        className="eyebrow",
+                    ),
                     html.H1("Turn conversation history into a knowledge atlas."),
                     html.P(
                         "Upload your ChatGPT export and compile years of conversations into a "
@@ -93,7 +102,12 @@ def _layout() -> html.Main:
                             ),
                             dcc.Checklist(
                                 id="professional-safe",
-                                options=[{"label": " Professional-safe mode", "value": "enabled"}],
+                                options=[
+                                    {
+                                        "label": " Professional-safe mode",
+                                        "value": "enabled",
+                                    }
+                                ],
                                 value=["enabled"],
                             ),
                             html.P(
@@ -108,7 +122,10 @@ def _layout() -> html.Main:
                                 className="warning",
                             ),
                             html.Button(
-                                "Compile Archive", id="compile", disabled=True, className="primary"
+                                "Compile Archive",
+                                id="compile",
+                                disabled=True,
+                                className="primary",
                             ),
                         ],
                         className="card",
@@ -141,7 +158,8 @@ def _layout() -> html.Main:
                         className="results-heading",
                     ),
                     html.Div(
-                        id="atlas-results", children="Compile an archive to reveal its structure."
+                        id="atlas-results",
+                        children="Compile an archive to reveal its structure.",
                     ),
                 ],
                 className="card results-card",
@@ -152,7 +170,8 @@ def _layout() -> html.Main:
                         [
                             html.H2("Compilation progress"),
                             html.Div(
-                                id="progress", children="Waiting for a safe archive preflight."
+                                id="progress",
+                                children="Waiting for a safe archive preflight.",
                             ),
                         ],
                         className="card",
@@ -177,7 +196,8 @@ def _layout() -> html.Main:
                 [
                     html.H2("Evidence & export center"),
                     html.Div(
-                        id="exports", children="Verified artifacts are available after compilation."
+                        id="exports",
+                        children="Verified artifacts are available after compilation.",
                     ),
                     dcc.Download(id="download-bundle"),
                 ],
@@ -193,10 +213,14 @@ def _layout() -> html.Main:
 def create_app(*, data_root: Path | None = None) -> Dash:
     """Create an isolated Dash app; no mutable module-global user state is used."""
 
-    root = data_root or Path(os.environ.get("CHATGPT_ARCHIVE_OUTPUT", "./archive-output"))
+    root = data_root or Path(
+        os.environ.get("CHATGPT_ARCHIVE_OUTPUT", "./archive-output")
+    )
     sessions = SessionStore(root / "sessions")
     jobs = JobRegistry()
-    app = Dash(__name__, title="Private Semantic Atlas", suppress_callback_exceptions=True)
+    app = Dash(
+        __name__, title="Private Semantic Atlas", suppress_callback_exceptions=True
+    )
     app.server.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
     app.layout = _layout
 
@@ -221,7 +245,11 @@ def create_app(*, data_root: Path | None = None) -> Dash:
             path.write_bytes(payload)
             summary = preflight_archive(path)
         except Exception as exception:
-            return no_update, f"Preflight failed safely ({type(exception).__name__}).", True
+            return (
+                no_update,
+                f"Preflight failed safely ({type(exception).__name__}).",
+                True,
+            )
         return (
             session_id,
             html.Ul(
@@ -293,7 +321,11 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                     className=(
                         "orbit-node complete"
                         if stage in completed
-                        else "orbit-node active" if stage == job.stage else "orbit-node future"
+                        else (
+                            "orbit-node active"
+                            if stage == job.stage
+                            else "orbit-node future"
+                        )
                     ),
                     **_aria_props(
                         aria_current="step" if stage == job.stage else "false"
@@ -347,7 +379,10 @@ def create_app(*, data_root: Path | None = None) -> Dash:
         overview = html.Div(
             [
                 html.Div(
-                    [html.Strong(str(result.project_count)), html.Span(" project threads")],
+                    [
+                        html.Strong(str(result.project_count)),
+                        html.Span(" project threads"),
+                    ],
                     className="metric",
                 ),
                 html.Div(
@@ -358,7 +393,10 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                     className="metric",
                 ),
                 html.Div(
-                    [html.Strong(str(result.included_count)), html.Span(" approved conversations")],
+                    [
+                        html.Strong(str(result.included_count)),
+                        html.Span(" approved conversations"),
+                    ],
                     className="metric",
                 ),
                 html.Div(
@@ -402,7 +440,11 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                 sum(len(item["unresolved_work"]) for item in data["timelines"]),
                 "open-work",
             ),
-            ("Dormant threads resumed", len(synthesis["dormant_threads"]), "project-ribbons"),
+            (
+                "Dormant threads resumed",
+                len(synthesis["dormant_threads"]),
+                "project-ribbons",
+            ),
             (
                 "Reversals or reframings",
                 len(synthesis["tensions_and_reversals"]),
