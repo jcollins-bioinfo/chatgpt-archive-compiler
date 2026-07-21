@@ -1,16 +1,16 @@
-FROM ghcr.io/astral-sh/uv:0.11.28-python3.12-bookworm-slim AS builder
+FROM python:3.12-slim-bookworm AS builder
+RUN python -m pip install --no-cache-dir "uv==0.11.28"
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
-RUN uv sync --frozen --no-dev --extra app --extra semantic --extra pdf
+RUN uv sync --frozen --no-dev --no-editable --extra app --extra semantic --extra pdf
 
 FROM python:3.12-slim-bookworm AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends curl libpango-1.0-0 libpangoft2-1.0-0 && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 atlas
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-COPY --chown=atlas:atlas src ./src
 RUN mkdir /app/output && chown atlas:atlas /app/output
 ENV PATH=/app/.venv/bin:$PATH CHATGPT_ARCHIVE_OUTPUT=/app/output PYTHONUNBUFFERED=1
 USER atlas
