@@ -240,3 +240,23 @@ def verify_command(
             console.print(f"[red]{problem}[/red]")
         raise typer.Exit(code=1)
     console.print(f"Verified {verification.checked_artifact_count:,} artifacts.")
+
+
+@app.command("app")
+def app_command(
+    host: Annotated[str, typer.Option(help="Local interface to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(min=1, max=65535)] = 8050,
+    output_directory: Annotated[
+        Path, typer.Option(help="Private writable session and artifact directory.")
+    ] = Path("archive-output"),
+) -> None:
+    """Launch the local-first interactive semantic atlas."""
+
+    try:
+        from chatgpt_archive_compiler.app import create_app
+
+        dash_app = create_app(data_root=output_directory)
+        console.print(f"Private local application: http://{host}:{port}")
+        dash_app.run(host=host, port=port, debug=False)
+    except Exception as exception:
+        _abort_safely("Application launch", exception)

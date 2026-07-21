@@ -3,8 +3,43 @@
 [![CI](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml/badge.svg?event=push)](https://github.com/jcollins-bioinfo/chatgpt-archive-compiler/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A local-first, loss-aware compiler and experimental semantic-analysis pipeline for user-controlled
-ChatGPT data exports.
+Upload your ChatGPT export and compile years of conversations into a **private, evidence-linked map**
+of projects, ideas, decisions, recurring themes, and intellectual development—while retaining the
+chronological HTML and PDF book as verified first-class exports.
+
+## Launch the private interactive atlas
+
+**Recommended local Docker:**
+
+```bash
+docker build -t chatgpt-archive-compiler .
+docker run --rm -p 127.0.0.1:8050:8050 \
+  -v "$PWD/archive-output:/app/output" chatgpt-archive-compiler
+```
+
+**One-command local launch:**
+
+```bash
+./scripts/run_app_local.sh
+```
+
+Then open <http://127.0.0.1:8050>. The interface provides ZIP safety preflight, an explicit privacy
+boundary, stage-based background compilation, project/theme overview, evidence-linked semantic
+atlas, Professional-safe filtering, and a verified download bundle.
+
+```text
+OPAQUE EXPORT ZIP  →  SAFE PREFLIGHT  →  PROJECTS · THEMES · TIMELINES · EVIDENCE
+                                              ↓
+                      VERIFIED CHRONOLOGICAL HTML · PDF · SEMANTIC ATLAS
+```
+
+> **Privacy first.** Local mode has no telemetry or model calls. Real exports and every derivative
+> are highly sensitive. Professional-safe filtering is conservative and fallible; review outputs
+> before sharing. Tests, examples, and documentation use fictional synthetic data only.
+
+See [application architecture](docs/APP_ARCHITECTURE.md), [privacy model](docs/PRIVACY_MODEL.md),
+[deployment](docs/DEPLOYMENT.md), [evaluation](docs/SEMANTIC_EVALUATION.md), and the exact
+[three-minute demo](docs/CONTEST_DEMO.md).
 
 > **Research alpha.** ZIP ingestion, normalization, privacy boundaries, caching, cost accounting,
 > and artifact integrity are extensively tested. Semantic usefulness and editorial quality are not
@@ -14,7 +49,7 @@ ChatGPT data exports.
 This independent project is not affiliated with, endorsed by, or supported by OpenAI. “ChatGPT” and
 “OpenAI” are trademarks of their respective owner.
 
-## Five-minute synthetic demonstration
+## Synthetic interactive demonstration
 
 The demonstration contains only fictional conversations, makes no network calls, and writes a
 verifiable local result.
@@ -26,17 +61,17 @@ cd chatgpt-archive-compiler
 python -m pip install "uv==0.11.28"
 uv sync --frozen --extra dev --extra semantic
 
-uv run python examples/make_synthetic_export.py /tmp/synthetic-chatgpt-export.zip
-uv run chatgpt-archive run-local \
-  /tmp/synthetic-chatgpt-export.zip \
-  /tmp/chatgpt-archive-demo
-uv run chatgpt-archive verify /tmp/chatgpt-archive-demo
+uv run python examples/make_contest_demo_export.py \
+  --output /tmp/chatgpt-archive-contest-demo.zip \
+  --ground-truth /tmp/chatgpt-archive-contest-ground-truth.json \
+  --seed 20260721
+uv run chatgpt-archive app
 ```
 
-Open `/tmp/chatgpt-archive-demo/compiled/index.html` for the chronological archive or
-`/tmp/chatgpt-archive-demo/semantic/semantic_atlas.html` for the deterministic local baseline.
-The baseline demonstrates the data flow and provenance system; it is intentionally not presented as
-a high-quality interpretation.
+Upload `/tmp/chatgpt-archive-contest-demo.zip`. It contains 102 information-dense fictional
+conversations across six sustained projects and fourteen months, with alternate branches, failures,
+reframings, dormant resumptions, open loops, and planted Professional-safe cases. The separate
+ground truth supports evaluation and is never embedded in the export.
 
 ## What it does
 
@@ -202,5 +237,4 @@ Contributions must use synthetic data. See [CONTRIBUTING.md](CONTRIBUTING.md) an
 Citation metadata is provided in [CITATION.cff](CITATION.cff). The source is available under the
 [MIT License](LICENSE).
 
-Current development version: `0.3.0a1`.
-
+Current development version: `0.4.0a2`.

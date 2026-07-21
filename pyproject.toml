@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "chatgpt-archive-compiler"
 dynamic = ["version"]
-description = "Local-first, loss-aware compiler and experimental semantic pipeline for ChatGPT data exports."
+description = "Private interactive knowledge atlas and loss-aware compiler for ChatGPT data exports."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "John Collins" }]
