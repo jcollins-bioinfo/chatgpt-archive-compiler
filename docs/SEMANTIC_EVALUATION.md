@@ -2,10 +2,11 @@
 
 ## Tasks and ground truth
 
-The offline generator creates 72 fictional conversations across six recurring domains and writes a
-separate ground-truth JSON file. Planted arcs include stages, dormant returns, open questions,
-alternate branches, context-dependent preference changes, contradiction candidates, cross-domain
-links, and professional-safety cases. Ground truth never enters the export or inference pipeline.
+The offline generator creates 102 naturally varied, multi-turn fictional conversations across six
+sustained projects and fourteen months, then writes a separate ground-truth JSON file. Planted arcs
+include failed controls, methodological reversals, dormant returns, open questions, alternate
+branches, preference changes, contextual contradictions, cross-domain links, and
+professional-safety cases. Ground truth never enters the export or inference pipeline.
 
 ## Metrics
 
@@ -29,3 +30,19 @@ Known failure modes include generic category names, sparse text fragmenting a pr
 overlap joining unrelated threads, missed implicit open loops, and conservative privacy rules.
 Next experiments are explicit benchmark scoring, reviewer agreement, alias-aware project matching,
 and bounded opt-in structured model refinement.
+
+Run the acceptance harness through the real local semantic pipeline:
+
+```bash
+uv run python examples/validate_contest_demo.py \
+  --archive /tmp/chatgpt-archive-contest-demo.zip \
+  --ground-truth /tmp/chatgpt-archive-contest-ground-truth.json \
+  --output-directory /tmp/chatgpt-archive-semantic-validation \
+  --report /tmp/chatgpt-archive-demo-validation.json
+```
+
+It fails unless project timelines, overlap matching, longitudinal findings, open loops, dormant
+threads, reversals, cross-domain connections, category-name uniqueness, generic-term safeguards,
+and evidence referential integrity all meet their independent thresholds. Its JSON diagnostics name
+missed, fragmented, or merged projects; missed milestones; unsupported findings; duplicate labels;
+generic terms; and evidence-link failures.

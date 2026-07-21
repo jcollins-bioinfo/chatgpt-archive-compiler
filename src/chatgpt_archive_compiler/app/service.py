@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from chatgpt_archive_compiler.compiler import CompileOptions, compile_archive
@@ -63,6 +65,7 @@ class AppCompilationResult:
     included_count: int
     excluded_count: int
     review_count: int
+    dashboard_data_path: Path
 
 
 def preflight_archive(path: Path) -> PreflightSummary:
@@ -86,6 +89,13 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _date_string(created_at: datetime | None, updated_at: datetime | None) -> str | None:
+    """Return one ISO date after explicit optional narrowing for strict typing."""
+
+    timestamp = created_at or updated_at
+    return timestamp.date().isoformat() if timestamp is not None else None
 
 
 def compile_for_app(
@@ -160,15 +170,19 @@ def compile_for_app(
     notify(STAGES[4])
     local = LocalHeuristicAnalysisProvider()
 
-    def semantic_progress(stage: str, _completed: int, _total: int, _cached: int) -> None:
+    def semantic_progress(stage: str, completed: int, _total: int, _cached: int) -> None:
         mapping = {
-            "embedding": STAGES[4],
-            "graph": STAGES[5],
+            "representations": STAGES[4],
+            "embeddings": STAGES[4],
+            "conversation_profiles": STAGES[4],
+            "semantic_graph": STAGES[5],
             "taxonomy": STAGES[6],
-            "synthesis": STAGES[7],
-            "review": STAGES[8],
+            "archive_synthesis": STAGES[7],
         }
-        notify(mapping.get(stage, STAGES[6]))
+        if stage == "artifact_export":
+            notify(STAGES[8] if completed == 0 else STAGES[9])
+        else:
+            notify(mapping.get(stage, STAGES[6]))
 
     semantic = build_semantic_atlas(
         filtered,
@@ -176,8 +190,48 @@ def compile_for_app(
         embedding_provider=LocalHashingEmbeddingProvider(),
         analysis_provider=local,
         interpretation_provider=local,
-        options=SemanticAtlasOptions(),
+        options=SemanticAtlasOptions(max_leaf_categories=12),
         progress_callback=semantic_progress,
+    )
+    dashboard_data_path = output_directory / "semantic" / "dashboard_data.json"
+    analysis_by_key = {item.conversation_key: item for item in semantic.atlas.analyses}
+    degree = Counter(
+        key for edge in semantic.atlas.graph_edges for key in (edge.source_key, edge.target_key)
+    )
+    dashboard_data_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "conversations": [
+                    {
+                        "key": item.conversation_key,
+                        "title": item.title,
+                        "date": _date_string(item.created_at, item.updated_at),
+                        "projects": list(analysis_by_key[item.conversation_key].projects),
+                        "theme": analysis_by_key[item.conversation_key].primary_subject,
+                        "role": analysis_by_key[item.conversation_key].temporal_role
+                        or analysis_by_key[item.conversation_key].conversation_type,
+                        "message_count": item.message_count,
+                        "evidence_count": degree[item.conversation_key],
+                    }
+                    for item in semantic.atlas.representations
+                ],
+                "edges": [edge.model_dump(mode="json") for edge in semantic.atlas.graph_edges],
+                "timelines": [
+                    item.model_dump(mode="json") for item in semantic.atlas.project_timelines
+                ],
+                "synthesis": semantic.atlas.synthesis.model_dump(mode="json"),
+                "categories": [
+                    item.model_dump(mode="json")
+                    for item in semantic.atlas.taxonomy.categories
+                    if item.level == 1
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     notify(STAGES[9])
     manifest_path = output_directory / "app_manifest.json"
@@ -219,4 +273,5 @@ def compile_for_app(
         included_count=counts["include"],
         excluded_count=counts["exclude"],
         review_count=counts["review"],
+        dashboard_data_path=dashboard_data_path,
     )

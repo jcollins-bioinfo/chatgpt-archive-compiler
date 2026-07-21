@@ -4,18 +4,28 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import time
 import zipfile
 from pathlib import Path
 from types import ModuleType
 
 from chatgpt_archive_compiler.app import create_app
+from chatgpt_archive_compiler.app.downloads import make_download_payload
 from chatgpt_archive_compiler.app.jobs import JobRegistry, JobStatus
 from chatgpt_archive_compiler.app.service import compile_for_app, preflight_archive
 from chatgpt_archive_compiler.app.state import SessionStore, append_correction, make_correction
+from chatgpt_archive_compiler.app.visualizations import build_figures
 from chatgpt_archive_compiler.ingest import ingest_export_zip
 from chatgpt_archive_compiler.professional_safety import SafetyDecision, classify_archive
 from chatgpt_archive_compiler.semantic.domain import EvidenceKind, EvidenceReference, Insight
+from chatgpt_archive_compiler.semantic.evaluation import evaluate_contest_atlas
+from chatgpt_archive_compiler.semantic.local_providers import (
+    LocalHashingEmbeddingProvider,
+    LocalHeuristicAnalysisProvider,
+)
+from chatgpt_archive_compiler.semantic.models import SemanticAtlasOptions
+from chatgpt_archive_compiler.semantic.pipeline import build_semantic_atlas
 
 
 def _generator_module() -> ModuleType:
@@ -23,6 +33,7 @@ def _generator_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("contest_generator", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -62,6 +73,7 @@ def test_jobs_are_background_and_fail_safely() -> None:
             break
         time.sleep(0.01)
     assert success_job is not None and success_job.status is JobStatus.SUCCEEDED
+    assert any(entry.status.value == "complete" for entry in success_job.log)
     assert failed_job is not None and failed_job.status is JobStatus.FAILED
     assert failed_job.error == "Compilation failed safely (RuntimeError)."
     assert "private text" not in failed_job.error
@@ -77,11 +89,17 @@ def test_synthetic_generator_preflight_safety_and_stability(tmp_path: Path) -> N
     summary = preflight_archive(first)
     assert summary.conversation_member_found
     archive = ingest_export_zip(first)
-    assert len(archive.conversations) == 72
+    assert 100 <= len(archive.conversations) <= 140
+    assert sum(len(item.current_path_messages) for item in archive.conversations) >= 600
     decisions = classify_archive(tuple(archive.conversations))
     assert sum(item.decision is SafetyDecision.EXCLUDE for item in decisions) >= 4
     assert sum(item.decision is SafetyDecision.REVIEW for item in decisions) >= 1
-    assert decisions[59].decision is SafetyDecision.INCLUDE
+    include_trap = next(
+        decision
+        for conversation, decision in zip(archive.conversations, decisions, strict=True)
+        if conversation.title == "Medication table migration"
+    )
+    assert include_trap.decision is SafetyDecision.INCLUDE
     assert len(json.loads(truth.read_text())["projects"]) == 6
 
 
@@ -97,6 +115,38 @@ def test_evidence_schema_requires_grounding() -> None:
         insight_id="insight-1", statement="Candidate conclusion", evidence=(evidence,)
     )
     assert insight.schema_version == "1.0"
+
+
+def test_typed_download_adapter(tmp_path: Path) -> None:
+    artifact = tmp_path / "synthetic.txt"
+    artifact.write_text("fictional", encoding="utf-8")
+    payload = make_download_payload(artifact)
+    assert payload["filename"] == "synthetic.txt"
+    assert payload["base64"] is True
+
+
+def test_anonymous_figures_suppress_titles() -> None:
+    data = {
+        "conversations": [
+            {
+                "key": "key-1",
+                "title": "Private title",
+                "date": "2026-01-01",
+                "projects": ["private-repository"],
+                "theme": "Theme",
+                "role": "milestone",
+                "message_count": 6,
+                "evidence_count": 1,
+            }
+        ],
+        "edges": [],
+        "timelines": [],
+    }
+    figures = build_figures(data, anonymous=True)
+    serialized = json.dumps(figures)
+    assert "Private title" not in serialized
+    assert "private-repository" not in serialized
+    assert "Conversation 001" in serialized
 
 
 def test_end_to_end_professional_bundle_has_no_excluded_text(tmp_path: Path) -> None:
@@ -130,3 +180,24 @@ def test_end_to_end_professional_bundle_has_no_excluded_text(tmp_path: Path) -> 
     }
     assert all(isinstance(item, str) for item in known_keys)
     assert taxonomy["categories"]
+
+
+def test_contest_semantic_acceptance(tmp_path: Path) -> None:
+    generator = _generator_module()
+    source, truth_path = tmp_path / "contest.zip", tmp_path / "truth.json"
+    generator.write_demo(source, truth_path, 20260721)
+    archive = ingest_export_zip(source)
+    local = LocalHeuristicAnalysisProvider()
+    result = build_semantic_atlas(
+        archive,
+        tmp_path / "semantic",
+        embedding_provider=LocalHashingEmbeddingProvider(),
+        analysis_provider=local,
+        interpretation_provider=local,
+        options=SemanticAtlasOptions(max_leaf_categories=12),
+    )
+    validation = evaluate_contest_atlas(
+        result.atlas,
+        json.loads(truth_path.read_text()),
+    )
+    assert validation.passed, validation.as_dict()

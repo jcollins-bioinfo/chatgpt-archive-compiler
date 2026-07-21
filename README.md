@@ -68,9 +68,10 @@ uv run python examples/make_contest_demo_export.py \
 uv run chatgpt-archive app
 ```
 
-Upload `/tmp/chatgpt-archive-contest-demo.zip`. It contains 72 fictional conversations across six
-longitudinal domains, alternate branches, open loops, and planted Professional-safe cases. The
-separate ground truth supports evaluation and is never embedded in the export.
+Upload `/tmp/chatgpt-archive-contest-demo.zip`. It contains 102 information-dense fictional
+conversations across six sustained projects and fourteen months, with alternate branches, failures,
+reframings, dormant resumptions, open loops, and planted Professional-safe cases. The separate
+ground truth supports evaluation and is never embedded in the export.
 
 ## What it does
 
@@ -236,4 +237,4 @@ Contributions must use synthetic data. See [CONTRIBUTING.md](CONTRIBUTING.md) an
 Citation metadata is provided in [CITATION.cff](CITATION.cff). The source is available under the
 [MIT License](LICENSE).
 
-Current development version: `0.4.0a1`.
+Current development version: `0.4.0a2`.

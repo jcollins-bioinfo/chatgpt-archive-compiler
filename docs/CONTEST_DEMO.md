@@ -15,7 +15,7 @@ synthetic corpus is intended to complete on a demo timescale, but no duration is
 
 ## Click path
 
-1. Establish the before-state: an opaque 72-conversation ZIP.
+1. Establish the before-state: an opaque 102-conversation, fourteen-month ZIP.
 2. Upload it, point out safe ZIP preflight, local-only mode, and Professional-safe mode.
 3. Compile and show coarse stages rather than invented percentages.
 4. Show excluded and review counts, projects/categories, and the semantic atlas evidence links.
