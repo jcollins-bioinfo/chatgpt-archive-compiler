@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
+from typing import Any
 
 from dash import Dash, Input, Output, State, dcc, html, no_update
 
@@ -23,6 +24,12 @@ from chatgpt_archive_compiler.app.visualizations import (
 from chatgpt_archive_compiler.version import __version__
 
 MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+
+def _aria_props(**attributes: str) -> dict[str, Any]:
+    """Convert Python-safe ARIA names into Dash HTML attribute names."""
+
+    return {name.replace("_", "-"): value for name, value in attributes.items()}
 
 
 def _layout() -> html.Main:
@@ -309,12 +316,12 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                         if stage in completed
                         else ("orbit-node active" if stage == job.stage else "orbit-node future")
                     ),
-                    **{"aria-current": "step" if stage == job.stage else "false"},
+                    **_aria_props(aria_current="step" if stage == job.stage else "false"),
                 )
                 for stage in dict.fromkeys(stages)
             ],
             className="pipeline-orbit",
-            **{"aria-label": "Semantic compilation stages"},
+            **_aria_props(aria_label="Semantic compilation stages"),
         )
         log = html.Details(
             [
@@ -345,7 +352,7 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                 html.P(
                     f"{job.stage} · {len(completed)} stages completed · {elapsed:.1f}s elapsed",
                     role="status",
-                    **{"aria-live": "polite"},
+                    **_aria_props(aria_live="polite"),
                 ),
                 orbit,
                 log,
@@ -453,7 +460,7 @@ def create_app(*, data_root: Path | None = None) -> Dash:
                         for label, count, anchor in summary_items
                     ],
                     className="summary-grid",
-                    **{"aria-label": "Recovered semantic structure"},
+                    **_aria_props(aria_label="Recovered semantic structure"),
                 ),
                 dcc.Graph(
                     id="semantic-network",

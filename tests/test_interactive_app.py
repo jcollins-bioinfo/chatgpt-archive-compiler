@@ -12,6 +12,7 @@ from types import ModuleType
 
 from chatgpt_archive_compiler.app import create_app
 from chatgpt_archive_compiler.app.downloads import make_download_payload
+from chatgpt_archive_compiler.app.factory import _aria_props
 from chatgpt_archive_compiler.app.jobs import JobRegistry, JobStatus
 from chatgpt_archive_compiler.app.service import compile_for_app, preflight_archive
 from chatgpt_archive_compiler.app.state import SessionStore, append_correction, make_correction
@@ -44,6 +45,13 @@ def test_app_factory_state_isolation(tmp_path: Path) -> None:
     assert first is not second
     assert first.title == "Private Semantic Atlas"
     assert first.server.config["MAX_CONTENT_LENGTH"] == 512 * 1024 * 1024
+
+
+def test_aria_props_translate_python_safe_names() -> None:
+    assert _aria_props(aria_current="step", aria_label="Pipeline") == {
+        "aria-current": "step",
+        "aria-label": "Pipeline",
+    }
 
 
 def test_session_corrections_and_traversal(tmp_path: Path) -> None:
