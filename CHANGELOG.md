@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0a1 - 2026-07-21
+
+- Add a local-first Dash upload, preflight, background compile, overview, and verified-download flow.
+- Add pre-synthesis Professional-safe classification with scoped artifacts and review-by-default
+  handling for uncertain conversations.
+- Formalize evidence-linked longitudinal semantic and correction records.
+- Add a deterministic 72-conversation fictional contest corpus, Docker/local launch paths, tests,
+  and application/privacy/evaluation/demo documentation.
+
 All notable changes are documented here. Versions follow PEP 440 and semantic-versioning intent
 while the project remains pre-1.0.
 
@@ -66,4 +75,3 @@ while the project remains pre-1.0.
 - Initial loss-aware ChatGPT export ingestion, Archive IR serialization, structural diagnostics,
   redaction, and chronological HTML/PDF compilation.
 - Initial Colab bootstrap and compiler workflows.
-
