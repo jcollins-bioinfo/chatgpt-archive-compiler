@@ -7,6 +7,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from datetime import timedelta
 
 from chatgpt_archive_compiler.semantic.models import (
     ArchiveSynthesis,
@@ -70,7 +71,85 @@ _STOPWORDS = {
     "would",
     "you",
     "your",
+    "conversation",
+    "help",
+    "need",
+    "using",
+    "work",
+    "review",
+    "analysis",
+    "design",
+    "result",
+    "results",
+    "approach",
+    "project",
+    "title",
+    "call",
+    "must",
+    "fictional",
 }
+
+_SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
+_ARTIFACT_PATTERN = re.compile(
+    r"\b(?:[a-z][a-z0-9]+(?:[-_][a-z0-9]+)+|[A-Za-z0-9_-]+\.(?:py|json|parquet|ipynb|md|csv|mid|midi|wav|pdf))\b"
+)
+_QUESTION_MARKERS = (
+    "unresolved",
+    "open question",
+    "still need",
+    "remains to",
+    "not yet",
+    "defer",
+    "follow up",
+)
+_DECISION_MARKERS = (
+    "decided",
+    "decision",
+    "we will",
+    "switch to",
+    "adopt",
+    "keep",
+    "drop",
+    "defer",
+    "pivot",
+)
+_REVERSAL_MARKERS = (
+    "reversal",
+    "reframe",
+    "revised",
+    "changed direction",
+    "instead of",
+    "no longer",
+    "abandon",
+    "pivot",
+    "weakened",
+    "disappeared",
+)
+_RESUMPTION_MARKERS = ("resumed", "reactivated", "returned to", "after the hiatus")
+
+
+def _sentences(text: str) -> tuple[str, ...]:
+    """Return bounded normalized sentences for transparent feature extraction."""
+
+    compact = _WHITESPACE.sub(" ", text).strip()
+    return tuple(part.strip()[:500] for part in _SENTENCE_PATTERN.split(compact) if part.strip())
+
+
+def _matching_sentences(text: str, markers: Sequence[str], *, limit: int = 4) -> tuple[str, ...]:
+    """Select source sentences containing any declared marker."""
+
+    return tuple(
+        sentence
+        for sentence in _sentences(text)
+        if any(marker in sentence.casefold() for marker in markers)
+    )[:limit]
+
+
+def _project_candidates(text: str) -> tuple[str, ...]:
+    """Extract stable artifact/repository handles that can link evolving project language."""
+
+    return tuple(dict.fromkeys(match.casefold() for match in _ARTIFACT_PATTERN.findall(text)))
+
 
 _DOMAIN_KEYWORDS: tuple[tuple[str, frozenset[str]], ...] = (
     (
@@ -216,7 +295,7 @@ class LocalHashingEmbeddingProvider:
     def model_name(self) -> str:
         """Return a versioned algorithm and dimension identifier."""
 
-        return f"signed-feature-hashing-v1-{self._dimensions}d"
+        return f"signed-feature-hashing-v2-{self._dimensions}d"
 
     def embed(self, items: Sequence[ConversationRepresentation]) -> Sequence[EmbeddingRecord]:
         """Embed title-weighted unigrams and bigrams using deterministic BLAKE2 hashing."""
@@ -258,13 +337,23 @@ class LocalHeuristicAnalysisProvider:
     def model_name(self) -> str:
         """Return the versioned heuristic-rule identifier."""
 
-        return "transparent-semantic-heuristics-v1"
+        return "transparent-semantic-heuristics-v2"
 
     def analyze_conversations(
         self, items: Sequence[ConversationRepresentation]
     ) -> Sequence[ConversationAnalysis]:
         """Create deterministic keyword, purpose, and synopsis profiles independently per item."""
 
+        candidate_counts = Counter(
+            candidate
+            for item in items
+            for candidate in _project_candidates(f"{item.title} {item.text}")
+        )
+        recurring_artifacts = {
+            candidate
+            for candidate, count in candidate_counts.items()
+            if count >= 3 and count <= max(3, int(len(items) * 0.45))
+        }
         analyses: list[ConversationAnalysis] = []
         for item in items:
             title_words = _tokens(item.title)
@@ -282,19 +371,42 @@ class LocalHeuristicAnalysisProvider:
                 conversation_type = "explanation and inquiry"
             else:
                 conversation_type = "general discussion"
-            project_markers = ("project", "repository", "repo", "notebook", "manuscript")
-            projects = (
-                (item.title.strip(),)
-                if any(
-                    marker in f"{item.title} {item.text[:500]}".casefold()
-                    for marker in project_markers
-                )
-                else ()
+            candidates = _project_candidates(f"{item.title} {item.text}")
+            local_candidate_counts = Counter(
+                match.casefold() for match in _ARTIFACT_PATTERN.findall(f"{item.title} {item.text}")
             )
+            projects = tuple(
+                _label((candidate,), candidate)
+                for candidate in candidates
+                if candidate in recurring_artifacts
+                or (
+                    "-" in candidate
+                    and "." not in candidate
+                    and local_candidate_counts[candidate] >= 2
+                )
+            )[:2]
             compact = _WHITESPACE.sub(" ", item.text).strip()
             synopsis = compact[:360].rstrip()
             if len(compact) > 360:
                 synopsis += "…"
+            decisions = _matching_sentences(item.text, _DECISION_MARKERS)
+            unresolved = _matching_sentences(item.text, _QUESTION_MARKERS)
+            goals = _matching_sentences(
+                item.text,
+                ("goal", "aim", "requirement", "hypothesis", "objective", "want to"),
+                limit=3,
+            )
+            temporal_role: str | None = None
+            if any(marker in lowered for marker in _RESUMPTION_MARKERS):
+                temporal_role = "resumption"
+            elif any(marker in lowered for marker in _REVERSAL_MARKERS):
+                temporal_role = "reversal or reframing"
+            elif any(
+                marker in lowered for marker in ("completed", "shipped", "validated", "milestone")
+            ):
+                temporal_role = "milestone"
+            elif any(marker in lowered for marker in ("start", "initial", "first prototype")):
+                temporal_role = "initiation"
             analyses.append(
                 ConversationAnalysis(
                     conversation_key=item.conversation_key,
@@ -304,11 +416,11 @@ class LocalHeuristicAnalysisProvider:
                     projects=projects,
                     conversation_type=conversation_type,
                     entities=tuple(_label((word,), word) for word in keywords[:6]),
-                    goals=(),
-                    decisions=(),
-                    unresolved_questions=(),
+                    goals=goals,
+                    decisions=decisions,
+                    unresolved_questions=unresolved,
                     recurring_themes=tuple(_label((word,), word) for word in keywords[8:12]),
-                    temporal_role=None,
+                    temporal_role=temporal_role,
                     related_conversation_keys=(),
                     confidence=0.5,
                 )
@@ -320,13 +432,23 @@ class LocalHeuristicAnalysisProvider:
 
         interpretations: list[CategoryInterpretation] = []
         label_sets: dict[str, set[str]] = {}
+        used_names: Counter[str] = Counter()
         for cluster in request.clusters:
             labels = [label for label in cluster.candidate_labels if label.strip()]
             label_sets[cluster.category_id] = {label.casefold() for label in labels}
+            base_name = " · ".join(labels[:2]) or "Unclassified conversations"
+            name = base_name
+            next_label = 2
+            while used_names[name.casefold()] and next_label < len(labels):
+                name = f"{base_name} · {labels[next_label]}"
+                next_label += 1
+            used_names[name.casefold()] += 1
+            if used_names[name.casefold()] > 1:
+                name = f"{name} · related thread"
             interpretations.append(
                 CategoryInterpretation(
                     category_id=cluster.category_id,
-                    name=" · ".join(labels[:2]) or "Unclassified conversations",
+                    name=name,
                     description=(
                         "A locally discovered semantic community characterized by "
                         + (", ".join(labels[:5]) if labels else "mixed subjects")
@@ -394,6 +516,8 @@ class LocalHeuristicAnalysisProvider:
                 project_members[project].append(analysis)
         timelines: list[ProjectTimeline] = []
         for project_name, members in sorted(project_members.items()):
+            if len(members) < 3:
+                continue
 
             def timeline_sort_key(item: ConversationAnalysis) -> tuple[bool, str, str]:
                 reference = references.get(item.conversation_key)
@@ -410,6 +534,10 @@ class LocalHeuristicAnalysisProvider:
                 members,
                 key=timeline_sort_key,
             )
+            event_members = ordered
+            if len(ordered) > 12:
+                indexes = sorted({round(index * (len(ordered) - 1) / 11) for index in range(12)})
+                event_members = [ordered[index] for index in indexes]
             events = tuple(
                 TimelineEvent(
                     label=(
@@ -426,23 +554,74 @@ class LocalHeuristicAnalysisProvider:
                         else None
                     ),
                 )
-                for item in ordered[:12]
+                for item in event_members
             )
+            unresolved_work = tuple(
+                dict.fromkeys(
+                    question for item in members for question in item.unresolved_questions
+                )
+            )[:10]
             timelines.append(
                 ProjectTimeline(
                     project_name=project_name,
                     overview=f"A recurring project represented by {len(members)} conversations.",
                     events=events,
-                    current_state=None,
-                    unresolved_work=tuple(
-                        question for item in members for question in item.unresolved_questions
-                    )[:10],
+                    current_state=ordered[-1].synopsis if ordered else None,
+                    unresolved_work=unresolved_work,
                 )
             )
 
         parent_categories = [
             category for category in request.taxonomy.categories if category.parent_id is None
         ]
+        cross_connections = tuple(
+            dict.fromkeys(
+                f"{left} connects with {right} through shared evidence in "
+                f"{analysis.primary_subject}."
+                for analysis in request.analyses
+                for left, right in zip(analysis.projects, analysis.projects[1:], strict=False)
+                if left != right
+            )
+        )[:12]
+        reversals = tuple(
+            dict.fromkeys(
+                decision
+                for analysis in request.analyses
+                if analysis.temporal_role == "reversal or reframing"
+                for decision in (analysis.decisions or (analysis.synopsis,))
+            )
+        )[:12]
+        temporal = tuple(
+            f"{references[item.conversation_key].title}: {item.temporal_role}."
+            for item in request.analyses
+            if item.temporal_role and item.conversation_key in references
+        )[:12]
+        dormant: list[str] = []
+        for project_name, members in sorted(project_members.items()):
+            dated_values = []
+            for member in members:
+                reference = references.get(member.conversation_key)
+                occurred_at = (
+                    reference.created_at or reference.updated_at if reference is not None else None
+                )
+                if occurred_at is not None:
+                    dated_values.append(occurred_at)
+            dated = sorted(dated_values)
+            if any(
+                later - earlier >= timedelta(days=75)
+                for earlier, later in zip(dated, dated[1:], strict=False)
+            ):
+                dormant.append(
+                    f"{project_name} contains a dormant interval followed by renewed activity."
+                )
+        opportunities = tuple(
+            dict.fromkeys(
+                question for item in request.analyses for question in item.unresolved_questions
+            )
+        )[:12]
+        repeated_projects = tuple(
+            project for project, members in project_members.items() if len(members) >= 3
+        )
         synthesis = ArchiveSynthesis(
             executive_summary=(
                 f"The semantic atlas organizes {len(request.analyses)} conversations into "
@@ -450,17 +629,20 @@ class LocalHeuristicAnalysisProvider:
                 f"{len(timelines)} recurring project timelines."
             ),
             dominant_domains=tuple(category.name for category in parent_categories[:12]),
-            cross_domain_connections=(),
-            recurring_patterns=tuple(
-                label
-                for label, _ in Counter(
-                    theme for item in request.analyses for theme in item.recurring_themes
-                ).most_common(10)
+            cross_domain_connections=cross_connections,
+            recurring_patterns=(
+                *repeated_projects[:6],
+                *tuple(
+                    label
+                    for label, _ in Counter(
+                        theme for item in request.analyses for theme in item.recurring_themes
+                    ).most_common(6)
+                ),
             ),
-            temporal_evolution=(),
-            tensions_and_reversals=(),
-            dormant_threads=(),
-            opportunities=(),
+            temporal_evolution=temporal,
+            tensions_and_reversals=reversals,
+            dormant_threads=tuple(dormant[:12]),
+            opportunities=opportunities,
         )
         return ArchiveSynthesisBundle(
             category_profiles=tuple(profiles),
