@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: Collins
     given-names: John
-version: 0.3.0a1
-date-released: 2026-07-20
+version: 0.4.0a2
+date-released: 2026-07-21
 license: MIT
 repository-code: "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
 url: "https://github.com/jcollins-bioinfo/chatgpt-archive-compiler"
