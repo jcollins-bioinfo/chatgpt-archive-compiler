@@ -56,7 +56,7 @@ pdf = [
 semantic = [
   "numpy>=1.26,<2.3",
   "openai>=1.66",
-  "polars>=1.0",
+  "polars>=1.43.1",
   "scikit-learn>=1.4",
   "tiktoken>=0.8",
 ]
